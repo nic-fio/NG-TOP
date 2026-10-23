@@ -9,6 +9,10 @@
 //! usano alberi finti. I percorsi sono sempre assoluti nel sistema osservato (es. `/proc/1/stat`), già
 //! comprensivi della radice di `Roots` quando i test usano fixture.
 
+pub mod actions;
+
+pub use actions::{LocalActions, NoActions, ProcActions};
+
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -198,6 +202,8 @@ pub struct RemoteStatus {
     pub latency_ms: Option<u32>,
     /// Byte ricevuti nell'ultimo aggiornamento (dopo la compressione di ssh non è misurabile: sono i byte del protocollo).
     pub last_bytes: u64,
+    /// `true` se lo script sul server gira come root (`--sudo` o utente root).
+    pub root: bool,
     pub state: RemoteState,
 }
 

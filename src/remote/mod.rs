@@ -21,11 +21,16 @@ use session::Transport;
 pub struct ConnectOptions {
     /// Compressione ssh (`-C`).
     pub compress: bool,
+    /// Script sul server eseguito con sudo (`--sudo`).
+    pub sudo: bool,
 }
 
 impl Default for ConnectOptions {
     fn default() -> Self {
-        ConnectOptions { compress: true }
+        ConnectOptions {
+            compress: true,
+            sudo: false,
+        }
     }
 }
 
@@ -53,6 +58,13 @@ pub fn connect(
         }
     };
     source::open(tr, t.display())
+}
+
+/// Azioni sui processi della macchina raggiunta da `src` (segnali e nice con verifica dell'avvio sul
+/// server). Provvisorio: rifiuta tutto finché il trasporto non le implementa.
+pub fn actions_for(src: &Arc<RemoteSource>) -> Arc<dyn crate::source::ProcActions> {
+    let _ = src;
+    Arc::new(crate::source::NoActions)
 }
 
 /// Come [`connect`] ma con `sh` locale: per i test (anche di altri moduli); non fa parte dell'API.

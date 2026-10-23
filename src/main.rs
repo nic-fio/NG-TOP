@@ -52,7 +52,10 @@ fn connect_remote(target: &str) -> Roots {
     });
     eprintln!("Connecting to {}…", t.display());
     match ngtop::remote::connect(&t, &ConnectOptions::default()) {
-        Ok((src, run)) => Roots::remote(src, run),
+        Ok((src, run)) => {
+            let act = ngtop::remote::actions_for(&src);
+            Roots::remote(src, run).with_actions(act)
+        }
         Err(e) => {
             // l'errore contiene l'ultima riga di stderr di ssh, che può venire dal server
             let e: String = e

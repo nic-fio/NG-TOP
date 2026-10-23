@@ -1290,6 +1290,7 @@ impl Source for RemoteSource {
             hostname: s.hostname.clone(),
             latency_ms: s.latency_ms,
             last_bytes: s.last_bytes,
+            root: false,
             state: s.state.clone().unwrap_or(RemoteState::Connected),
         })
     }

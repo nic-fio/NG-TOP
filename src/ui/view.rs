@@ -242,6 +242,7 @@ mod tests {
             hostname: Some("srv1".into()),
             latency_ms: latency,
             last_bytes: 0,
+            root: false,
             state,
         }
     }

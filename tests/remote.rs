@@ -21,7 +21,14 @@ fn remote_roots() -> Roots {
         unsafe { std::env::set_var("NGTOP_SSH", "local-sh") };
     });
     let t = Target::parse("localhost").expect("target");
-    let (src, run) = connect(&t, &ConnectOptions { compress: false }).expect("connect local-sh");
+    let (src, run) = connect(
+        &t,
+        &ConnectOptions {
+            compress: false,
+            ..Default::default()
+        },
+    )
+    .expect("connect local-sh");
     Roots::remote(src, run)
 }
 

@@ -12,10 +12,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use rustix::io::Errno;
-use rustix::process::{
-    Pid, PidfdFlags, Signal, kill_process, pidfd_open, pidfd_send_signal, setpriority_process,
-};
 
 use super::panoramica::{dim, fg, pct_color, span};
 use crate::collect::System;
@@ -100,82 +96,23 @@ pub const SIGNALS: [Sig; 8] = [
 /// Argomenti: radice di /proc, pid, avvio atteso (tick), segnale.
 pub type KillFn = fn(&std::path::Path, u32, u64, Sig) -> Result<(), String>;
 
-fn errno_text(e: Errno) -> String {
-    match e {
-        Errno::PERM => "permission denied (EPERM)".to_string(),
-        Errno::ACCESS => "access denied (EACCES)".to_string(),
-        Errno::SRCH => "the process no longer exists (ESRCH)".to_string(),
-        other => format!("error {}", other.raw_os_error()),
-    }
-}
-
-fn to_pid(pid: u32) -> Option<Pid> {
-    i32::try_from(pid).ok().and_then(Pid::from_raw)
-}
-
-/// Invio reale con rustix (nessuna libc C). Ordine senza finestre: pidfd_open → si rilegge
-/// l'avvio da stat e lo si confronta con quello atteso → pidfd_send_signal (il pidfd resta
-/// legato a quel processo anche se il pid viene riusato). Senza pidfd (kernel < 5.3 o permessi):
-/// verifica + kill.
+/// Invio reale: vedi [`crate::source::actions::send_signal`].
 pub fn send_signal(
     proc_root: &std::path::Path,
     pid: u32,
     expect: u64,
     sig: Sig,
 ) -> Result<(), String> {
-    let p = to_pid(pid).ok_or("invalid pid")?;
-    let s = Signal::from_named_raw(sig.num).ok_or("invalid signal")?;
-    let changed = || Err("the pid now belongs to another process (reused)".to_string());
-    match pidfd_open(p, PidfdFlags::empty()) {
-        Ok(fd) => {
-            if live_start(proc_root, pid) != Some(expect) {
-                return changed();
-            }
-            match pidfd_send_signal(&fd, s) {
-                Ok(()) => Ok(()),
-                Err(Errno::SRCH) => Err(errno_text(Errno::SRCH)),
-                Err(_) => kill_process(p, s).map_err(errno_text),
-            }
-        }
-        Err(Errno::SRCH) => Err(errno_text(Errno::SRCH)),
-        Err(_) => {
-            if live_start(proc_root, pid) != Some(expect) {
-                return changed();
-            }
-            kill_process(p, s).map_err(errno_text)
-        }
-    }
+    crate::source::actions::send_signal(proc_root, pid, expect, sig.num)
 }
 
 /// Avvio (starttime di stat, in tick) del processo vivo: serve a riconoscere un pid riusato.
 pub type StartFn = fn(&std::path::Path, u32) -> Option<u64>;
 
-pub fn live_start(proc_root: &std::path::Path, pid: u32) -> Option<u64> {
-    std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat"))
-        .ok()
-        .and_then(|t| crate::collect::process::parse_stat(&t))
-        .map(|st| st.starttime)
-}
+pub use crate::source::actions::{live_start, protected, set_nice};
 
 /// Oltre questa soglia il sottoalbero richiede una seconda conferma.
 const BIG_SUBTREE: usize = 50;
-
-/// Imposta il nice di un processo.
-pub fn set_nice(pid: u32, nice: i32) -> Result<(), String> {
-    let p = to_pid(pid).ok_or("invalid pid")?;
-    setpriority_process(Some(p), nice).map_err(errno_text)
-}
-
-/// Motivo per cui un pid non va colpito alla leggera (init, ngtop stesso).
-pub fn protected(pid: u32) -> Option<&'static str> {
-    if pid == 1 {
-        Some("PID 1 (init)")
-    } else if pid == std::process::id() {
-        Some("ngtop itself")
-    } else {
-        None
-    }
-}
 
 /// Il pid e tutti i suoi discendenti (preordine, radice per prima).
 pub fn subtree_pids(rows: &[Process], root: u32) -> Vec<u32> {
@@ -1922,7 +1859,7 @@ mod tests {
             .expect("sleep");
         let pid = child.id();
         assert!(set_nice(pid, 5).is_ok());
-        let n = rustix::process::getpriority_process(to_pid(pid)).unwrap();
+        let n = rustix::process::getpriority_process(crate::source::actions::to_pid(pid)).unwrap();
         assert_eq!(n, 5);
         // abbassare senza root non riesce (se si è root il test non ha senso)
         if rustix::process::getuid().as_raw() != 0 {

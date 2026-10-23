@@ -745,6 +745,7 @@ mod tests {
                 hostname: None,
                 latency_ms: None,
                 last_bytes: 0,
+                root: false,
                 state: crate::source::RemoteState::Connected,
             })
         }
