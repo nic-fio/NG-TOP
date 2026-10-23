@@ -5,7 +5,8 @@
 
 use std::path::Path;
 
-use super::{Roots, read_text};
+use super::Roots;
+use crate::source::Source;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Iface {
@@ -211,42 +212,54 @@ pub fn parse_if_inet6(text: &str) -> Vec<(String, String, bool)> {
         .collect()
 }
 
-fn read_link_info(sys: &Path, iface: &str) -> (Option<u32>, Option<String>) {
+fn read_link_info(src: &dyn Source, sys: &Path, iface: &str) -> (Option<u32>, Option<String>) {
     let base = sys.join("class/net").join(iface);
-    let speed = read_text(&base.join("speed"))
+    let speed = src
+        .read_text(&base.join("speed"))
         .and_then(|t| t.trim().parse::<i64>().ok())
         .filter(|v| *v > 0)
         .map(|v| v as u32);
-    let duplex = read_text(&base.join("duplex"))
+    let duplex = src
+        .read_text(&base.join("duplex"))
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty() && t != "unknown");
     (speed, duplex)
 }
 
-fn read_up(sys: &Path, iface: &str) -> Option<bool> {
-    let s = read_text(&sys.join("class/net").join(iface).join("operstate"))?;
+fn read_up(src: &dyn Source, sys: &Path, iface: &str) -> Option<bool> {
+    let s = src.read_text(&sys.join("class/net").join(iface).join("operstate"))?;
     Some(matches!(s.trim(), "up" | "unknown"))
 }
 
 /// Aggiorna `net` con un nuovo campione; `dt` in secondi (<= 0 → velocità a zero).
 pub fn refresh(net: &mut NetInfo, roots: &Roots, dt: f64) {
-    let dev = read_text(&roots.proc.join("net/dev"))
+    let dev = roots
+        .src
+        .read_text(&roots.proc.join("net/dev"))
         .map(|t| parse_dev(&t))
         .unwrap_or_default();
     // Rotte e indirizzi cambiano di rado: riletti ogni 5 giri.
     if net.rounds.is_multiple_of(5) {
-        net.routes = read_text(&roots.proc.join("net/route"))
+        net.routes = roots
+            .src
+            .read_text(&roots.proc.join("net/route"))
             .map(|t| parse_route(&t))
             .unwrap_or_default();
-        net.ips = read_text(&roots.proc.join("net/fib_trie"))
+        net.ips = roots
+            .src
+            .read_text(&roots.proc.join("net/fib_trie"))
             .map(|t| parse_local_ips(&t))
             .unwrap_or_default();
         net.default = default_iface(&net.routes);
         net.gateway = default_gateway(&net.routes);
-        net.dns = read_text(&roots.etc.join("resolv.conf"))
+        net.dns = roots
+            .src
+            .read_text(&roots.etc.join("resolv.conf"))
             .map(|t| parse_resolv(&t))
             .unwrap_or_default();
-        net.ips6 = read_text(&roots.proc.join("net/if_inet6"))
+        net.ips6 = roots
+            .src
+            .read_text(&roots.proc.join("net/if_inet6"))
             .map(|t| parse_if_inet6(&t))
             .unwrap_or_default();
     }
@@ -267,7 +280,7 @@ pub fn refresh(net: &mut NetInfo, roots: &Roots, dt: f64) {
             // Velocità, duplex e IPv6 cambiano di rado: riletti ogni 5 giri.
             let (speed_mbps, duplex) = match prev {
                 Some(p) if !slow => (p.speed_mbps, p.duplex.clone()),
-                _ => read_link_info(&roots.sys, &name),
+                _ => read_link_info(&*roots.src, &roots.sys, &name),
             };
             let ipv6 = ips6
                 .iter()
@@ -278,7 +291,7 @@ pub fn refresh(net: &mut NetInfo, roots: &Roots, dt: f64) {
                 speed_mbps,
                 duplex,
                 ipv6,
-                up: read_up(&roots.sys, &name),
+                up: read_up(&*roots.src, &roots.sys, &name),
                 ipv4: iface_ip(routes, ips, &name),
                 rx_peak: prev.map_or(0.0, |p| p.rx_peak).max(rx_rate),
                 tx_peak: prev.map_or(0.0, |p| p.tx_peak).max(tx_rate),

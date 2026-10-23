@@ -1,0 +1,2 @@
+Startup finished in 1min 3.250s (firmware) + 4.500s (loader) + 2.000s (kernel) + 1min 1.100s (userspace) = 2min 10.850s 
+multi-user.target reached after 1min in userspace.

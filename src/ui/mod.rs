@@ -41,6 +41,8 @@ pub struct RunOptions {
     pub file: Config,
     pub config_path: Option<std::path::PathBuf>,
     pub colors: ColorMode,
+    /// Dove leggere: questa macchina (`Roots::local()`) oppure una remota (`Roots::remote(..)`).
+    pub roots: Roots,
 }
 
 /// Riporta il terminale allo stato normale; ignora gli errori (può essere chiamata più volte).
@@ -60,9 +62,20 @@ impl Drop for TerminalGuard {
 }
 
 pub fn hostname(sys: &System) -> String {
-    std::fs::read_to_string(sys.roots.proc.join("sys/kernel/hostname"))
+    sys.roots
+        .src
+        .read_text(&sys.roots.proc.join("sys/kernel/hostname"))
         .map(|s| s.trim().to_string())
         .unwrap_or_default()
+}
+
+/// Sezione Servizi per la macchina in uso (backend remoto a comandi se si è in remoto).
+pub fn services_for(sys: &System) -> sections::servizi::Servizi {
+    if sys.remote_status().is_some() {
+        sections::servizi::Servizi::remote(sys.roots.src.clone(), sys.roots.run.clone())
+    } else {
+        sections::servizi::Servizi::new()
+    }
 }
 
 pub fn run(opts: RunOptions) -> io::Result<()> {
@@ -87,11 +100,13 @@ pub fn run(opts: RunOptions) -> io::Result<()> {
 
     // Tutto ciò che può fallire o allocare molto (fuso orario, primo campione) avviene
     // prima di toccare il terminale.
-    let mut sys = System::new(Roots::default());
+    let mut sys = System::new(opts.roots);
     sys.refresh();
     let size = crossterm::terminal::size().unwrap_or((80, 24));
     let mut app = App::new(size, hostname(&sys));
-    app.tz = tz::Tz::load(&sys.roots.etc);
+    app.remote = sys.remote_status().is_some();
+    app.servizi = services_for(&sys);
+    app.tz = tz::Tz::load(&sys.roots);
     let e = &opts.effective;
     app.interval_ms = config::round_interval(e.interval_ms);
     app.left_pct = e.left_width.clamp(20, 70);
@@ -161,8 +176,11 @@ fn event_loop(
         next_tick = next_tick.min(Instant::now() + Duration::from_millis(app.interval_ms));
         if Instant::now() >= next_tick {
             sys.collect_conns = app.section == app::Section::ReteDischi;
+            let t0 = Instant::now();
             sys.refresh();
+            let took = t0.elapsed();
             app.update(&sys);
+            app.adapt_interval(took);
             next_tick = Instant::now() + Duration::from_millis(app.interval_ms);
             dirty = true;
         }

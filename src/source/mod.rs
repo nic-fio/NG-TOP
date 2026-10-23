@@ -19,7 +19,11 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FsStat {
     pub total: u64,
+    /// Spazio disponibile per un utente normale (f_bavail, la colonna "Available" di df).
     pub free: u64,
+    /// Spazio occupato (f_blocks - f_bfree, la colonna "Used" di df): può essere minore di
+    /// `total - free` per via dei blocchi riservati a root.
+    pub used: u64,
     pub files: u64,
     pub ffree: u64,
 }
@@ -82,6 +86,7 @@ impl Source for LocalSource {
         Ok(FsStat {
             total: s.f_blocks.saturating_mul(unit),
             free: s.f_bavail.saturating_mul(unit),
+            used: s.f_blocks.saturating_sub(s.f_bfree).saturating_mul(unit),
             files: s.f_files,
             ffree: s.f_ffree,
         })
@@ -120,11 +125,33 @@ impl CommandRunner for LocalRunner {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;
+        // stdout e stderr si svuotano in thread mentre il comando gira: con una pipe piena
+        // (oltre 64 KB) il comando resterebbe fermo fino al tempo massimo
+        let drain = |r: Option<Box<dyn io::Read + Send>>| {
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                if let Some(mut r) = r {
+                    let _ = r.read_to_end(&mut buf);
+                }
+                buf
+            })
+        };
+        let out_t = drain(
+            child
+                .stdout
+                .take()
+                .map(|s| Box::new(s) as Box<dyn io::Read + Send>),
+        );
+        let err_t = drain(
+            child
+                .stderr
+                .take()
+                .map(|s| Box::new(s) as Box<dyn io::Read + Send>),
+        );
         let start = Instant::now();
-        loop {
-            if child.try_wait()?.is_some() {
-                let out = child.wait_with_output()?;
-                return Ok(CommandOutput { status: out.status.code(), stdout: out.stdout, stderr: out.stderr });
+        let status = loop {
+            if let Some(st) = child.try_wait()? {
+                break st;
             }
             if start.elapsed() >= timeout {
                 let _ = child.kill();
@@ -132,7 +159,12 @@ impl CommandRunner for LocalRunner {
                 return Err(io::Error::new(io::ErrorKind::TimedOut, "command timed out"));
             }
             std::thread::sleep(Duration::from_millis(10));
-        }
+        };
+        Ok(CommandOutput {
+            status: status.code(),
+            stdout: out_t.join().unwrap_or_default(),
+            stderr: err_t.join().unwrap_or_default(),
+        })
     }
 }
 
@@ -157,4 +189,32 @@ pub enum RemoteState {
     Reconnecting(String),
     /// Impossibile collegarsi (errore definitivo, es. autenticazione).
     Failed(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn comando_con_molto_output_non_si_blocca() {
+        // 200 KB su stdout: oltre la capienza della pipe
+        let t = Instant::now();
+        let out = LocalRunner
+            .run(
+                &["sh", "-c", "head -c 200000 /dev/zero"],
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        assert_eq!(out.stdout.len(), 200_000);
+        assert_eq!(out.status, Some(0));
+        assert!(t.elapsed() < Duration::from_secs(4));
+    }
+
+    #[test]
+    fn tempo_massimo_rispettato() {
+        let t = Instant::now();
+        let r = LocalRunner.run(&["sleep", "5"], Duration::from_millis(200));
+        assert!(r.is_err());
+        assert!(t.elapsed() < Duration::from_secs(3));
+    }
 }

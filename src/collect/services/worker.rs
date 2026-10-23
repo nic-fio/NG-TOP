@@ -11,6 +11,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::Instant;
 
+use crate::source::{LocalSource, Source};
+
 use super::cgroup::CgroupSampler;
 use super::{
     Action, ActionError, Backend, BootTimestamps, JournalLine, Scope, SessionInfo, UnitDetail,
@@ -48,13 +50,23 @@ pub struct Client {
 impl Client {
     /// Avvia il thread di lavoro. Il thread termina da solo quando il `Client` viene scartato.
     pub fn spawn(backend: Arc<dyn Backend>, cgroup_root: PathBuf) -> Client {
+        Self::spawn_with(backend, cgroup_root, Arc::new(LocalSource))
+    }
+
+    /// Come `spawn`, ma memoria/CPU dal cgroup e `/proc/PID/comm` si leggono da `src`
+    /// (per una macchina remota: la `Source` remota e `cgroup_root` = `/sys/fs/cgroup`).
+    pub fn spawn_with(
+        backend: Arc<dyn Backend>,
+        cgroup_root: PathBuf,
+        src: Arc<dyn Source>,
+    ) -> Client {
         let (tx, req_rx) = channel();
         let (resp_tx, rx) = channel();
         let ncores = thread::available_parallelism().map_or(1, |n| n.get());
-        let sampler = CgroupSampler::new(cgroup_root, ncores);
+        let sampler = CgroupSampler::with_source(Arc::clone(&src), cgroup_root, ncores);
         let spawned = thread::Builder::new()
             .name("ngtop-services".into())
-            .spawn(move || run(backend, sampler, req_rx, resp_tx));
+            .spawn(move || run(backend, sampler, src, req_rx, resp_tx));
         // Se il thread non parte, le richieste restano senza risposta: l'interfaccia resta viva.
         let _ = spawned;
         Client { tx, rx }
@@ -94,6 +106,7 @@ pub(crate) fn sample_rows(
 fn run(
     backend: Arc<dyn Backend>,
     mut sampler: CgroupSampler,
+    src: Arc<dyn Source>,
     rx: Receiver<Request>,
     tx: Sender<Response>,
 ) {
@@ -114,8 +127,8 @@ fn run(
                         d.mem_peak = d.mem_peak.or_else(|| sampler.mem_peak(&cg));
                     }
                     if let Some(pid) = d.main_pid.filter(|&p| p > 0) {
-                        d.comm = std::fs::read_to_string(format!("/proc/{pid}/comm"))
-                            .ok()
+                        d.comm = src
+                            .read_text(std::path::Path::new(&format!("/proc/{pid}/comm")))
                             .map(|s| s.trim().to_string())
                             .filter(|s| !s.is_empty());
                     }

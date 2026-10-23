@@ -14,11 +14,7 @@ fn roots(snap: &str) -> Roots {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(snap);
-    Roots {
-        proc: base.join("proc"),
-        sys: base.join("sys"),
-        etc: base.join("etc"),
-    }
+    Roots::with_dirs(base.join("proc"), base.join("sys"), base.join("etc"))
 }
 
 fn fixture_system() -> System {
@@ -119,11 +115,7 @@ fn many_cores_system(n: usize) -> (System, PathBuf) {
         stat.push_str(&format!("cpu{i} 10 0 10 80 0 0 0 0 0 0\n"));
     }
     fs::write(proc.join("stat"), stat).unwrap_or(());
-    let mut s = System::new(Roots {
-        proc,
-        sys: dir.join("sys"),
-        etc: dir.join("etc"),
-    });
+    let mut s = System::new(Roots::with_dirs(proc, dir.join("sys"), dir.join("etc")));
     s.refresh_with_dt(0.0);
     s.refresh_with_dt(1.0);
     (s, dir)

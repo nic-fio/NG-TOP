@@ -8,9 +8,13 @@
 pub mod cgroup;
 pub mod dbus;
 pub mod fake;
+pub mod remote;
 pub mod worker;
 
 use std::path::Path;
+use std::sync::Arc;
+
+use crate::source::{CommandRunner, Source};
 
 /// Bus a cui si parla: di sistema oppure di sessione (unità dell'utente).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -197,6 +201,21 @@ pub trait Backend: Send + Sync {
 /// `true` se il sistema è avviato con systemd.
 pub fn systemd_present(run_dir: &Path) -> bool {
     run_dir.join("systemd/system").is_dir()
+}
+
+/// Come [`systemd_present`], ma letto attraverso la `Source` (anche remota).
+pub fn systemd_present_in(src: &dyn Source, run_dir: &Path) -> bool {
+    src.exists(&run_dir.join("systemd/system"))
+}
+
+/// Sceglie il backend: D-Bus sulla macchina locale, `RemoteBackend` (solo comandi) se la
+/// `Source` è remota (`remote_status()` è `Some`).
+pub fn backend_for(src: &Arc<dyn Source>, run: &Arc<dyn CommandRunner>) -> Arc<dyn Backend> {
+    if src.remote_status().is_some() {
+        Arc::new(remote::RemoteBackend::new(Arc::clone(src), Arc::clone(run)))
+    } else {
+        Arc::new(dbus::DbusBackend::new())
+    }
 }
 
 /// Fasi di avvio con la loro durata in secondi (come `systemd-analyze time`).

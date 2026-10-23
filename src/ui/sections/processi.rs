@@ -151,7 +151,8 @@ pub fn send_signal(
 pub type StartFn = fn(&std::path::Path, u32) -> Option<u64>;
 
 pub fn live_start(proc_root: &std::path::Path, pid: u32) -> Option<u64> {
-    crate::collect::read_text(&proc_root.join(pid.to_string()).join("stat"))
+    std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat"))
+        .ok()
         .and_then(|t| crate::collect::process::parse_stat(&t))
         .map(|st| st.starttime)
 }
@@ -1938,11 +1939,11 @@ mod tests {
     #[test]
     fn disegno_senza_panic_alle_misure_previste() {
         let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/snap_a");
-        let mut sys = System::new(Roots {
-            proc: d.join("proc"),
-            sys: d.join("sys"),
-            etc: d.join("etc"),
-        });
+        let mut sys = System::new(Roots::with_dirs(
+            d.join("proc"),
+            d.join("sys"),
+            d.join("etc"),
+        ));
         sys.refresh_with_dt(1.0);
         sys.refresh_with_dt(1.0);
         for (w, h) in [(182, 52), (120, 40), (100, 30), (80, 24), (30, 8), (10, 4)] {

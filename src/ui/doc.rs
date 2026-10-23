@@ -92,7 +92,14 @@ mod tests {
             .iter()
             .map(|o| o["flag"].as_str().unwrap())
             .collect();
-        for f in ["-h, --help", "-d, --delay MS", "--config FILE", "--dump"] {
+        for f in [
+            "-h, --help",
+            "-d, --delay MS",
+            "--config FILE",
+            "--host TARGET",
+            "--local",
+            "--dump [TARGET]",
+        ] {
             assert!(flags.contains(&f), "{f} in {flags:?}");
         }
         assert!(

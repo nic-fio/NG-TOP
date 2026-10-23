@@ -5,13 +5,12 @@
 //! Le schede pesanti (thread, file, rete, ambiente, limiti, cgroup) si leggono solo se attive.
 
 use std::collections::HashMap;
-use std::fs;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
 use super::Roots;
 use super::process::parse_stat;
-use super::read_text;
+use crate::source::Source;
 
 /// Massimo di righe dell'elenco dei file aperti e delle variabili d'ambiente.
 pub const MAX_FILES: usize = 200;
@@ -320,8 +319,8 @@ pub fn parse_net_table(
     out
 }
 
-fn read_u64(path: &Path) -> Option<u64> {
-    read_text(path)?.trim().parse().ok()
+fn read_u64(s: &dyn Source, path: &Path) -> Option<u64> {
+    s.read_text(path)?.trim().parse().ok()
 }
 
 /// Valori "chiave numero" di cpu.stat.
@@ -335,6 +334,7 @@ pub fn parse_kv(text: &str) -> HashMap<String, u64> {
 }
 
 fn read_cgroup(roots: &Roots, path: &str) -> CgroupInfo {
+    let s = &*roots.src;
     // Il percorso viene da /proc: niente ".." per non uscire dalla radice.
     let rel = path.trim_start_matches('/');
     let mut info = CgroupInfo {
@@ -345,8 +345,8 @@ fn read_cgroup(roots: &Roots, path: &str) -> CgroupInfo {
         return info;
     }
     let dir = roots.sys.join("fs/cgroup").join(rel);
-    info.memory_current = read_u64(&dir.join("memory.current"));
-    info.memory_max = read_text(&dir.join("memory.max")).and_then(|t| {
+    info.memory_current = read_u64(s, &dir.join("memory.current"));
+    info.memory_max = s.read_text(&dir.join("memory.max")).and_then(|t| {
         let t = t.trim();
         if t == "max" {
             Some(None)
@@ -354,17 +354,17 @@ fn read_cgroup(roots: &Roots, path: &str) -> CgroupInfo {
             t.parse().ok().map(Some)
         }
     });
-    if let Some(kv) = read_text(&dir.join("cpu.stat")).map(|t| parse_kv(&t)) {
+    if let Some(kv) = s.read_text(&dir.join("cpu.stat")).map(|t| parse_kv(&t)) {
         info.usage_usec = kv.get("usage_usec").copied();
         info.nr_throttled = kv.get("nr_throttled").copied();
         info.throttled_usec = kv.get("throttled_usec").copied();
     }
-    info.pids_current = read_u64(&dir.join("pids.current"));
+    info.pids_current = read_u64(s, &dir.join("pids.current"));
     info
 }
 
-fn link_text(path: &Path) -> Option<String> {
-    fs::read_link(path)
+fn link_text(s: &dyn Source, path: &Path) -> Option<String> {
+    s.read_link(path)
         .ok()
         .map(|p| p.to_string_lossy().into_owned())
 }
@@ -390,6 +390,7 @@ impl DetailCollector {
         clock_ticks: u64,
         dt: f64,
     ) -> ProcDetail {
+        let s = &*roots.src;
         if self.pid != Some(pid) {
             self.pid = Some(pid);
             self.prev_io = None;
@@ -399,20 +400,22 @@ impl DetailCollector {
         let dir = roots.proc.join(pid.to_string());
         let mut d = ProcDetail {
             pid,
-            exe: link_text(&dir.join("exe")),
-            cwd: link_text(&dir.join("cwd")),
+            exe: link_text(s, &dir.join("exe")),
+            cwd: link_text(s, &dir.join("cwd")),
             ..ProcDetail::default()
         };
-        if let Some(t) = read_text(&dir.join("stat")) {
+        if let Some(t) = s.read_text(&dir.join("stat")) {
             (d.last_core, d.policy) = parse_stat_extra(&t);
         }
-        let status = read_text(&dir.join("status")).unwrap_or_default();
+        let status = s.read_text(&dir.join("status")).unwrap_or_default();
         d.affinity = parse_affinity(&status);
-        d.cgroup_path = read_text(&dir.join("cgroup")).and_then(|t| parse_cgroup_path(&t));
+        d.cgroup_path = s
+            .read_text(&dir.join("cgroup"))
+            .and_then(|t| parse_cgroup_path(&t));
         // Solo con la scheda Generale, al cambio di processo e poi ogni 5 giri.
         if tab == DetailTab::Generale && (self.smaps.is_none() || self.smaps_age >= 5) {
             self.smaps = Some(
-                read_text(&dir.join("smaps_rollup"))
+                s.read_text(&dir.join("smaps_rollup"))
                     .map_or((None, None, None), |t| parse_smaps_rollup(&t)),
             );
             self.smaps_age = 0;
@@ -425,7 +428,9 @@ impl DetailCollector {
         if d.swap.is_none() {
             d.swap = parse_vmswap(&status);
         }
-        d.io = read_text(&dir.join("io")).and_then(|t| super::process::parse_io(&t));
+        d.io = s
+            .read_text(&dir.join("io"))
+            .and_then(|t| super::process::parse_io(&t));
         d.io_rate = match (d.io, self.prev_io) {
             (Some((r, w)), Some((pr, pw))) if dt > 0.0 => Some((
                 r.saturating_sub(pr) as f64 / dt,
@@ -435,22 +440,25 @@ impl DetailCollector {
             _ => None,
         };
         self.prev_io = d.io;
-        d.fd_count = fs::read_dir(dir.join("fd")).ok().map(|r| r.count());
+        d.fd_count = s.read_dir(&dir.join("fd")).ok().map(|r| r.len());
         match tab {
-            DetailTab::Thread => d.threads = self.read_threads(&dir, clock_ticks, dt),
+            DetailTab::Thread => d.threads = self.read_threads(s, &dir, clock_ticks, dt),
             DetailTab::File => {
-                d.files = read_files(&dir);
-                d.fd_limit =
-                    read_text(&dir.join("limits")).and_then(|t| fd_limit_of(&parse_limits(&t)));
+                d.files = read_files(s, &dir);
+                d.fd_limit = s
+                    .read_text(&dir.join("limits"))
+                    .and_then(|t| fd_limit_of(&parse_limits(&t)));
             }
             DetailTab::Rete => d.sockets = read_sockets(roots, &dir),
             DetailTab::Ambiente => {
-                d.env = fs::read(dir.join("environ"))
+                d.env = s
+                    .read(&dir.join("environ"))
                     .map(|b| parse_environ(&b))
                     .unwrap_or_default();
             }
             DetailTab::Limiti => {
-                d.limits = read_text(&dir.join("limits"))
+                d.limits = s
+                    .read_text(&dir.join("limits"))
                     .map(|t| parse_limits(&t))
                     .unwrap_or_default();
             }
@@ -462,15 +470,17 @@ impl DetailCollector {
         d
     }
 
-    fn read_threads(&mut self, dir: &Path, hz: u64, dt: f64) -> Vec<ThreadInfo> {
+    fn read_threads(&mut self, s: &dyn Source, dir: &Path, hz: u64, dt: f64) -> Vec<ThreadInfo> {
         let mut out = Vec::new();
         let mut now = HashMap::new();
-        if let Ok(rd) = fs::read_dir(dir.join("task")) {
-            for e in rd.flatten() {
-                let Ok(tid) = e.file_name().to_string_lossy().parse::<u32>() else {
+        if let Ok(rd) = s.read_dir(&dir.join("task")) {
+            for e in rd {
+                let Ok(tid) = e.to_string_lossy().parse::<u32>() else {
                     continue;
                 };
-                let Some(st) = read_text(&e.path().join("stat")).and_then(|t| parse_stat(&t))
+                let Some(st) = s
+                    .read_text(&dir.join("task").join(&e).join("stat"))
+                    .and_then(|t| parse_stat(&t))
                 else {
                     continue;
                 };
@@ -498,14 +508,14 @@ impl DetailCollector {
 }
 
 /// Elenco fd → destinazione (al massimo `MAX_FILES`), ordinato per numero di fd.
-fn read_files(dir: &Path) -> Vec<String> {
+fn read_files(s: &dyn Source, dir: &Path) -> Vec<String> {
     let mut fds: Vec<(u32, String)> = Vec::new();
-    if let Ok(rd) = fs::read_dir(dir.join("fd")) {
-        for e in rd.flatten() {
-            let Ok(n) = e.file_name().to_string_lossy().parse::<u32>() else {
+    if let Ok(rd) = s.read_dir(&dir.join("fd")) {
+        for e in rd {
+            let Ok(n) = e.to_string_lossy().parse::<u32>() else {
                 continue;
             };
-            let target = link_text(&e.path()).unwrap_or_else(|| "—".to_string());
+            let target = link_text(s, &dir.join("fd").join(&e)).unwrap_or_else(|| "—".to_string());
             fds.push((n, target));
         }
     }
@@ -517,10 +527,14 @@ fn read_files(dir: &Path) -> Vec<String> {
 }
 
 fn read_sockets(roots: &Roots, dir: &Path) -> Vec<SocketInfo> {
+    let s = &*roots.src;
     let mut inodes = std::collections::HashSet::new();
-    if let Ok(rd) = fs::read_dir(dir.join("fd")) {
-        for e in rd.flatten() {
-            if let Some(i) = link_text(&e.path()).as_deref().and_then(socket_inode) {
+    if let Ok(rd) = s.read_dir(&dir.join("fd")) {
+        for e in rd {
+            if let Some(i) = link_text(s, &dir.join("fd").join(&e))
+                .as_deref()
+                .and_then(socket_inode)
+            {
                 inodes.insert(i);
             }
         }
@@ -535,7 +549,7 @@ fn read_sockets(roots: &Roots, dir: &Path) -> Vec<SocketInfo> {
         ("udp", "udp"),
         ("udp6", "udp6"),
     ] {
-        if let Some(t) = read_text(&roots.proc.join("net").join(file)) {
+        if let Some(t) = s.read_text(&roots.proc.join("net").join(file)) {
             out.extend(parse_net_table(&t, proto, &inodes));
         }
     }
@@ -546,15 +560,12 @@ fn read_sockets(roots: &Roots, dir: &Path) -> Vec<SocketInfo> {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use std::fs;
     use std::path::PathBuf;
 
     fn roots() -> Roots {
         let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/snap_a");
-        Roots {
-            proc: d.join("proc"),
-            sys: d.join("sys"),
-            etc: d.join("etc"),
-        }
+        Roots::with_dirs(d.join("proc"), d.join("sys"), d.join("etc"))
     }
 
     #[test]
@@ -686,11 +697,7 @@ mod tests {
             )
         };
         let io = |r: u64| format!("read_bytes: {r}\nwrite_bytes: 0\n");
-        let r = Roots {
-            proc: dir.join("proc"),
-            sys: dir.join("sys"),
-            etc: dir.join("etc"),
-        };
+        let r = Roots::with_dirs(dir.join("proc"), dir.join("sys"), dir.join("etc"));
         let mut c = DetailCollector::default();
         fs::write(p.join("task/7/stat"), stat(100)).unwrap();
         fs::write(p.join("io"), io(1000)).unwrap();

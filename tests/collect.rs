@@ -12,11 +12,7 @@ fn roots(snap: &str) -> Roots {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
         .join(snap);
-    Roots {
-        proc: base.join("proc"),
-        sys: base.join("sys"),
-        etc: base.join("etc"),
-    }
+    Roots::with_dirs(base.join("proc"), base.join("sys"), base.join("etc"))
 }
 
 /// Sistema con due campioni: A poi B, a 1 s di distanza.

@@ -16,8 +16,8 @@ pub mod sensors;
 pub mod services;
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use conn::ConnInfo;
@@ -29,29 +29,60 @@ use mem::MemInfo;
 use net::NetInfo;
 use process::{ProcPrev, Process};
 
-/// Radici del filesystem da cui si legge (nei test sono cartelle finte).
-#[derive(Debug, Clone)]
+use crate::source::{CommandRunner, LocalRunner, LocalSource, RemoteStatus, Source};
+
+/// Radici del filesystem da cui si legge (nei test sono cartelle finte) e sorgente delle letture:
+/// ogni lettura passa da `src`, ogni comando esterno da `run`.
+#[derive(Clone)]
 pub struct Roots {
     pub proc: PathBuf,
     pub sys: PathBuf,
     pub etc: PathBuf,
+    pub src: Arc<dyn Source>,
+    pub run: Arc<dyn CommandRunner>,
 }
 
-impl Default for Roots {
-    fn default() -> Self {
+impl std::fmt::Debug for Roots {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Roots")
+            .field("proc", &self.proc)
+            .field("sys", &self.sys)
+            .field("etc", &self.etc)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Roots {
+    /// /proc, /sys, /etc della macchina locale.
+    pub fn local() -> Roots {
+        Roots::with_dirs("/proc".into(), "/sys".into(), "/etc".into())
+    }
+
+    /// Radici personalizzate (fixture dei test), sorgente locale.
+    pub fn with_dirs(proc: PathBuf, sys: PathBuf, etc: PathBuf) -> Roots {
         Roots {
-            proc: PathBuf::from("/proc"),
-            sys: PathBuf::from("/sys"),
-            etc: PathBuf::from("/etc"),
+            proc,
+            sys,
+            etc,
+            src: Arc::new(LocalSource),
+            run: Arc::new(LocalRunner),
+        }
+    }
+
+    /// /proc, /sys, /etc della macchina remota raggiunta da `src` e `run`.
+    pub fn remote(src: Arc<dyn Source>, run: Arc<dyn CommandRunner>) -> Roots {
+        Roots {
+            src,
+            run,
+            ..Roots::local()
         }
     }
 }
 
-/// Legge un file come testo (lossy); `None` se manca o non è leggibile.
-pub(crate) fn read_text(path: &Path) -> Option<String> {
-    fs::read(path)
-        .ok()
-        .map(|b| String::from_utf8_lossy(&b).into_owned())
+impl Default for Roots {
+    fn default() -> Self {
+        Roots::local()
+    }
 }
 
 /// Stato complessivo del sistema: ultimi dati letti + campione precedente per le differenze.
@@ -93,7 +124,7 @@ pub struct System {
 
 impl System {
     pub fn new(roots: Roots) -> Self {
-        let users = process::load_users(&roots.etc.join("passwd"));
+        let users = process::load_users(&*roots.src, &roots.etc.join("passwd"));
         let mut s = System {
             clock_ticks: rustix::param::clock_ticks_per_second().max(1),
             page_size: (rustix::param::page_size() as u64).max(1),
@@ -108,9 +139,10 @@ impl System {
             disks: DiskInfo::default(),
             // Con radici diverse da /proc (--roots, test) niente statvfs sul sistema vero.
             fs_monitor: if roots.proc == std::path::Path::new("/proc") {
-                FsMonitor::real()
+                FsMonitor::real(Arc::clone(&roots.src))
             } else {
                 FsMonitor::from_file(
+                    Arc::clone(&roots.src),
                     roots
                         .proc
                         .parent()
@@ -132,15 +164,21 @@ impl System {
             last_refresh: None,
             roots,
         };
-        s.cpu.model = cpu::read_model(&s.roots.proc.join("cpuinfo"));
-        let (logical, physical) = cpu::read_topology(&s.roots.proc.join("cpuinfo"));
+        s.cpu.model = cpu::read_model(&*s.roots.src, &s.roots.proc.join("cpuinfo"));
+        let (logical, physical) = cpu::read_topology(&*s.roots.src, &s.roots.proc.join("cpuinfo"));
         s.cpu.logical = logical;
         s.cpu.physical = physical;
         s
     }
 
+    /// Stato della connessione se la sorgente è remota, `None` in locale.
+    pub fn remote_status(&self) -> Option<RemoteStatus> {
+        self.roots.src.remote_status()
+    }
+
     /// Rilegge tutto; il tempo trascorso dal refresh precedente è misurato col clock reale.
     pub fn refresh(&mut self) {
+        self.roots.src.begin_refresh();
         let now = Instant::now();
         let dt = self
             .last_refresh
@@ -153,9 +191,9 @@ impl System {
     /// Come `refresh` ma con il tempo trascorso (secondi) dato; `dt <= 0` → velocità a zero.
     pub fn refresh_with_dt(&mut self, dt: f64) {
         self.refresh_cpu();
-        self.mem = mem::read_meminfo(&self.roots.proc.join("meminfo"));
-        self.load = load::read_loadavg(&self.roots.proc.join("loadavg"));
-        self.uptime = load::read_uptime(&self.roots.proc.join("uptime"));
+        self.mem = mem::read_meminfo(&*self.roots.src, &self.roots.proc.join("meminfo"));
+        self.load = load::read_loadavg(&*self.roots.src, &self.roots.proc.join("loadavg"));
+        self.uptime = load::read_uptime(&*self.roots.src, &self.roots.proc.join("uptime"));
         self.refresh_processes(dt);
         self.refresh_gpu(dt);
         net::refresh(&mut self.net, &self.roots, dt);
@@ -187,12 +225,12 @@ impl System {
         } else {
             self.conn_tick = 0;
         }
-        let sys = &self.roots.sys;
+        let (src, sys) = (&*self.roots.src, &self.roots.sys);
         let path = self
             .temp_path
-            .get_or_insert_with(|| sensors::find_cpu_temp_path(sys));
-        self.cpu_temp = path.as_deref().and_then(sensors::read_temp);
-        self.zram = read_zram(sys);
+            .get_or_insert_with(|| sensors::find_cpu_temp_path(src, sys));
+        self.cpu_temp = path.as_deref().and_then(|p| sensors::read_temp(src, p));
+        self.zram = read_zram(src, sys);
         self.refresh_count += 1;
     }
 
@@ -224,7 +262,7 @@ impl System {
     }
 
     fn refresh_cpu(&mut self) {
-        let (total, cores) = cpu::read_stat(&self.roots.proc.join("stat"));
+        let (total, cores) = cpu::read_stat(&*self.roots.src, &self.roots.proc.join("stat"));
         self.cpu.total_usage = match (&self.prev_cpu, &total) {
             (Some(p), Some(t)) => cpu::usage_between(p, t),
             _ => 0.0,
@@ -237,7 +275,7 @@ impl System {
                 .get(&id)
                 .map(|p| cpu::usage_between(p, &t))
                 .unwrap_or(0.0);
-            let freq_mhz = cpu::read_freq_mhz(&self.roots.sys, id);
+            let freq_mhz = cpu::read_freq_mhz(&*self.roots.src, &self.roots.sys, id);
             out.push(cpu::CoreStats {
                 id,
                 usage,
@@ -260,6 +298,7 @@ impl System {
             self.cpu.cores.len()
         } as f64;
         let list = process::read_all(
+            &*self.roots.src,
             &self.roots.proc,
             self.clock_ticks,
             self.page_size,
@@ -280,14 +319,15 @@ impl System {
 }
 
 /// Somma di orig_data_size e compr_data_size di tutti i dispositivi zram.
-fn read_zram(sys: &Path) -> Option<(u64, u64)> {
+fn read_zram(src: &dyn Source, sys: &Path) -> Option<(u64, u64)> {
     let mut tot = (0u64, 0u64);
     let mut found = false;
-    for e in fs::read_dir(sys.join("block")).ok()?.flatten() {
-        if !e.file_name().to_string_lossy().starts_with("zram") {
+    let block = sys.join("block");
+    for n in src.read_dir(&block).ok()? {
+        if !n.to_string_lossy().starts_with("zram") {
             continue;
         }
-        let Some(t) = read_text(&e.path().join("mm_stat")) else {
+        let Some(t) = src.read_text(&block.join(&n).join("mm_stat")) else {
             continue;
         };
         let f: Vec<u64> = t

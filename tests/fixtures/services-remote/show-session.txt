@@ -1,0 +1,13 @@
+Id=2
+TimestampMonotonic=31736469
+TTY=tty2
+RemoteHost=
+Desktop=
+Type=wayland
+
+Id=3
+TimestampMonotonic=31797961
+TTY=
+RemoteHost=
+Desktop=
+Type=unspecified

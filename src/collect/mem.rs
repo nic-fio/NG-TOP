@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use super::read_text;
+use crate::source::Source;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MemInfo {
@@ -69,8 +69,8 @@ pub fn parse_meminfo(text: &str) -> MemInfo {
     }
 }
 
-pub fn read_meminfo(path: &Path) -> MemInfo {
-    read_text(path)
+pub fn read_meminfo(src: &dyn Source, path: &Path) -> MemInfo {
+    src.read_text(path)
         .map(|t| parse_meminfo(&t))
         .unwrap_or_default()
 }

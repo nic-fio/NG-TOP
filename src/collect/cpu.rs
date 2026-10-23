@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::read_text;
+use crate::source::Source;
 
 /// Tempi cumulativi (tick) di una CPU.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -69,8 +69,8 @@ pub fn parse_stat(text: &str) -> (Option<CpuTimes>, Vec<(usize, CpuTimes)>) {
     (total, cores)
 }
 
-pub fn read_stat(path: &Path) -> (Option<CpuTimes>, Vec<(usize, CpuTimes)>) {
-    read_text(path)
+pub fn read_stat(src: &dyn Source, path: &Path) -> (Option<CpuTimes>, Vec<(usize, CpuTimes)>) {
+    src.read_text(path)
         .map(|t| parse_stat(&t))
         .unwrap_or((None, Vec::new()))
 }
@@ -97,8 +97,10 @@ pub fn parse_model(text: &str) -> String {
     String::new()
 }
 
-pub fn read_model(path: &Path) -> String {
-    read_text(path).map(|t| parse_model(&t)).unwrap_or_default()
+pub fn read_model(src: &dyn Source, path: &Path) -> String {
+    src.read_text(path)
+        .map(|t| parse_model(&t))
+        .unwrap_or_default()
 }
 
 /// (core logici, core fisici se ricavabili) da cpuinfo.
@@ -143,18 +145,18 @@ pub fn parse_topology(text: &str) -> (usize, Option<usize>) {
     (logical, physical)
 }
 
-pub fn read_topology(path: &Path) -> (usize, Option<usize>) {
-    read_text(path)
+pub fn read_topology(src: &dyn Source, path: &Path) -> (usize, Option<usize>) {
+    src.read_text(path)
         .map(|t| parse_topology(&t))
         .unwrap_or((0, None))
 }
 
 /// Frequenza attuale del core in MHz (scaling_cur_freq è in kHz).
-pub fn read_freq_mhz(sys: &Path, core: usize) -> Option<u64> {
+pub fn read_freq_mhz(src: &dyn Source, sys: &Path, core: usize) -> Option<u64> {
     let p = sys.join(format!(
         "devices/system/cpu/cpu{core}/cpufreq/scaling_cur_freq"
     ));
-    let khz: u64 = read_text(&p)?.trim().parse().ok()?;
+    let khz: u64 = src.read_text(&p)?.trim().parse().ok()?;
     Some(khz / 1000)
 }
 

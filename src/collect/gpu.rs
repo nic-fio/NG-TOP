@@ -5,10 +5,10 @@
 //! Le GPU sospese non vengono interrogate (per non svegliarle); NVIDIA è solo rilevata.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{Roots, read_text};
+use super::Roots;
+use crate::source::Source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GpuState {
@@ -266,12 +266,12 @@ fn counter_total(c: Counter) -> u64 {
 
 // ---------------------------------------------------------------- sysfs
 
-fn rd_u64(p: &Path) -> Option<u64> {
-    read_text(p)?.trim().parse().ok()
+fn rd_u64(s: &dyn Source, p: &Path) -> Option<u64> {
+    s.read_text(p)?.trim().parse().ok()
 }
 
-fn rd_hex(p: &Path) -> Option<u32> {
-    u32::from_str_radix(read_text(p)?.trim().trim_start_matches("0x"), 16).ok()
+fn rd_hex(s: &dyn Source, p: &Path) -> Option<u32> {
+    u32::from_str_radix(s.read_text(p)?.trim().trim_start_matches("0x"), 16).ok()
 }
 
 fn uevent_value(text: &str, key: &str) -> Option<String> {
@@ -367,12 +367,13 @@ pub fn parse_dpm(text: &str) -> (Option<u64>, Option<u64>) {
     (cur, max)
 }
 
-fn read_hwmon(dev: &Path, g: &mut Gpu) {
-    let Some(hw) = fs::read_dir(dev.join("hwmon")).ok().and_then(|rd| {
+fn read_hwmon(s: &dyn Source, dev: &Path, g: &mut Gpu) {
+    let hwdir = dev.join("hwmon");
+    let Some(hw) = s.read_dir(&hwdir).ok().and_then(|rd| {
         let mut v: Vec<PathBuf> = rd
-            .flatten()
-            .filter(|e| e.file_name().to_string_lossy().starts_with("hwmon"))
-            .map(|e| e.path())
+            .into_iter()
+            .filter(|n| n.to_string_lossy().starts_with("hwmon"))
+            .map(|n| hwdir.join(n))
             .collect();
         v.sort();
         v.into_iter().next()
@@ -380,10 +381,11 @@ fn read_hwmon(dev: &Path, g: &mut Gpu) {
         return;
     };
     for n in 1..=8 {
-        let Some(mdeg) = rd_u64(&hw.join(format!("temp{n}_input"))) else {
+        let Some(mdeg) = rd_u64(s, &hw.join(format!("temp{n}_input"))) else {
             continue;
         };
-        let label = read_text(&hw.join(format!("temp{n}_label")))
+        let label = s
+            .read_text(&hw.join(format!("temp{n}_label")))
             .map(|l| l.trim().to_string())
             .unwrap_or_else(|| format!("temp{n}"));
         g.temps.push((label, mdeg as f64 / 1000.0));
@@ -392,35 +394,37 @@ fn read_hwmon(dev: &Path, g: &mut Gpu) {
         .iter()
         .find_map(|k| g.temps.iter().find(|(l, _)| l == k).map(|(_, t)| *t))
         .or_else(|| g.temps.first().map(|(_, t)| *t));
-    let uw = |n: &str| rd_u64(&hw.join(n)).map(|v| v as f64 / 1e6);
+    let uw = |n: &str| rd_u64(s, &hw.join(n)).map(|v| v as f64 / 1e6);
     g.power_w = uw("power1_average").or_else(|| uw("power1_input"));
     g.power_cap_w = uw("power1_cap");
-    g.fan_rpm = rd_u64(&hw.join("fan1_input"));
-    g.fan_pct = rd_u64(&hw.join("pwm1")).map(|p| p as f64 / 255.0 * 100.0);
+    g.fan_rpm = rd_u64(s, &hw.join("fan1_input"));
+    g.fan_pct = rd_u64(s, &hw.join("pwm1")).map(|p| p as f64 / 255.0 * 100.0);
 }
 
 /// Dati statici (nome, ids, driver): letti una volta sola.
 fn read_static(roots: &Roots, card: &str, cache_pci: &mut Option<String>) -> Option<Gpu> {
+    let s = &*roots.src;
     let cdir = roots.sys.join("class/drm").join(card);
     let dev = cdir.join("device");
-    let vendor = rd_hex(&dev.join("vendor"))?;
-    let device = rd_hex(&dev.join("device")).unwrap_or(0);
-    let uevent = read_text(&dev.join("uevent")).unwrap_or_default();
+    let vendor = rd_hex(s, &dev.join("vendor"))?;
+    let device = rd_hex(s, &dev.join("device")).unwrap_or(0);
+    let uevent = s.read_text(&dev.join("uevent")).unwrap_or_default();
     let pdev = uevent_value(&uevent, "PCI_SLOT_NAME")
         .or_else(|| {
-            fs::read_link(&dev)
+            s.read_link(&dev)
                 .ok()
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         })
         .unwrap_or_else(|| card.to_string());
     let driver = uevent_value(&uevent, "DRIVER")
         .or_else(|| {
-            fs::read_link(dev.join("driver"))
+            s.read_link(&dev.join("driver"))
                 .ok()
                 .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         })
         .unwrap_or_default();
-    let product = read_text(&dev.join("product_name"))
+    let product = s
+        .read_text(&dev.join("product_name"))
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let name = product
@@ -429,7 +433,7 @@ fn read_static(roots: &Roots, card: &str, cache_pci: &mut Option<String>) -> Opt
                 let usr = roots.etc.parent().unwrap_or(Path::new("/"));
                 ["usr/share/hwdata/pci.ids", "usr/share/misc/pci.ids"]
                     .iter()
-                    .find_map(|p| read_text(&usr.join(p)))
+                    .find_map(|p| s.read_text(&usr.join(p)))
                     .unwrap_or_default()
             });
             pci_name(ids, vendor, device)
@@ -448,57 +452,58 @@ fn read_static(roots: &Roots, card: &str, cache_pci: &mut Option<String>) -> Opt
 
 /// Letture dinamiche del dispositivo, solo se attivo.
 fn read_dynamic(roots: &Roots, g: &mut Gpu) {
+    let s = &*roots.src;
     let cdir = roots.sys.join("class/drm").join(&g.card);
     let dev = cdir.join("device");
     match g.driver.as_str() {
         "amdgpu" => {
-            g.usage = rd_u64(&dev.join("gpu_busy_percent")).map(|v| v as f64);
-            g.vram_used = rd_u64(&dev.join("mem_info_vram_used"));
-            g.vram_total = rd_u64(&dev.join("mem_info_vram_total"));
-            g.gtt_used = rd_u64(&dev.join("mem_info_gtt_used"));
-            g.gtt_total = rd_u64(&dev.join("mem_info_gtt_total"));
-            if let Some(t) = read_text(&dev.join("pp_dpm_sclk")) {
+            g.usage = rd_u64(s, &dev.join("gpu_busy_percent")).map(|v| v as f64);
+            g.vram_used = rd_u64(s, &dev.join("mem_info_vram_used"));
+            g.vram_total = rd_u64(s, &dev.join("mem_info_vram_total"));
+            g.gtt_used = rd_u64(s, &dev.join("mem_info_gtt_used"));
+            g.gtt_total = rd_u64(s, &dev.join("mem_info_gtt_total"));
+            if let Some(t) = s.read_text(&dev.join("pp_dpm_sclk")) {
                 let (cur, max) = parse_dpm(&t);
                 g.clock_mhz = cur;
                 g.clock_max_mhz = max;
             }
-            if let Some(t) = read_text(&dev.join("pp_dpm_mclk")) {
+            if let Some(t) = s.read_text(&dev.join("pp_dpm_mclk")) {
                 g.mem_clock_mhz = parse_dpm(&t).0;
             }
             // Integrata se la VRAM dedicata è piccola (UMA).
             g.integrated = g.vram_total.is_some_and(|v| v <= 1 << 30);
-            read_hwmon(&dev, g);
+            read_hwmon(s, &dev, g);
         }
         "i915" => {
             g.integrated = igpu_pdev(&g.pdev);
-            g.clock_mhz = rd_u64(&cdir.join("gt_act_freq_mhz"))
+            g.clock_mhz = rd_u64(s, &cdir.join("gt_act_freq_mhz"))
                 .filter(|v| *v > 0)
-                .or_else(|| rd_u64(&cdir.join("gt_cur_freq_mhz")));
-            g.clock_max_mhz = rd_u64(&cdir.join("gt_max_freq_mhz"));
-            read_hwmon(&dev, g);
+                .or_else(|| rd_u64(s, &cdir.join("gt_cur_freq_mhz")));
+            g.clock_max_mhz = rd_u64(s, &cdir.join("gt_max_freq_mhz"));
+            read_hwmon(s, &dev, g);
         }
         "xe" => {
             g.integrated = igpu_pdev(&g.pdev);
             // Si leggono solo tile0/gt0 (le GPU con più tile/gt non sono ancora distinte).
             let f = dev.join("tile0/gt0/freq0");
-            g.clock_mhz = rd_u64(&f.join("act_freq"))
+            g.clock_mhz = rd_u64(s, &f.join("act_freq"))
                 .filter(|v| *v > 0)
-                .or_else(|| rd_u64(&f.join("cur_freq")));
-            g.clock_max_mhz = rd_u64(&f.join("max_freq"));
-            read_hwmon(&dev, g);
+                .or_else(|| rd_u64(s, &f.join("cur_freq")));
+            g.clock_max_mhz = rd_u64(s, &f.join("max_freq"));
+            read_hwmon(s, &dev, g);
         }
         _ => {}
     }
     if !g.integrated || g.driver == "amdgpu" {
-        let s = read_text(&dev.join("current_link_speed"));
-        let w = read_text(&dev.join("current_link_width"));
-        if let (Some(s), Some(w)) = (s, w) {
-            g.pcie = pcie_text(&s, &w);
+        let sp = s.read_text(&dev.join("current_link_speed"));
+        let w = s.read_text(&dev.join("current_link_width"));
+        if let (Some(sp), Some(w)) = (sp, w) {
+            g.pcie = pcie_text(&sp, &w);
         }
-        let s = read_text(&dev.join("max_link_speed"));
-        let w = read_text(&dev.join("max_link_width"));
-        if let (Some(s), Some(w)) = (s, w) {
-            g.pcie_max = pcie_text(&s, &w);
+        let sp = s.read_text(&dev.join("max_link_speed"));
+        let w = s.read_text(&dev.join("max_link_width"));
+        if let (Some(sp), Some(w)) = (sp, w) {
+            g.pcie_max = pcie_text(&sp, &w);
         }
     }
 }
@@ -508,9 +513,11 @@ fn igpu_pdev(pdev: &str) -> bool {
     pdev.starts_with("0000:00:")
 }
 
-fn is_suspended(dev: &Path) -> bool {
-    read_text(&dev.join("power/runtime_status")).is_some_and(|s| s.trim() == "suspended")
-        || read_text(&dev.join("power_state")).is_some_and(|s| s.trim() == "D3cold")
+fn is_suspended(s: &dyn Source, dev: &Path) -> bool {
+    s.read_text(&dev.join("power/runtime_status"))
+        .is_some_and(|s| s.trim() == "suspended")
+        || s.read_text(&dev.join("power_state"))
+            .is_some_and(|s| s.trim() == "D3cold")
 }
 
 // ---------------------------------------------------------------- collettore
@@ -544,19 +551,20 @@ struct FdEntry {
 }
 
 /// Fd DRM (/dev/dri/*) di un processo e se la cartella non era leggibile (permesso negato).
-fn scan_drm_fds(proc_root: &Path, pid: u32) -> (Vec<String>, bool) {
-    let rd = match fs::read_dir(proc_root.join(pid.to_string()).join("fd")) {
+fn scan_drm_fds(s: &dyn Source, proc_root: &Path, pid: u32) -> (Vec<String>, bool) {
+    let fddir = proc_root.join(pid.to_string()).join("fd");
+    let rd = match s.read_dir(&fddir) {
         Ok(rd) => rd,
         Err(e) => return (Vec::new(), e.kind() == std::io::ErrorKind::PermissionDenied),
     };
     let mut v: Vec<String> = rd
-        .flatten()
-        .filter(|e| {
-            fs::read_link(e.path())
+        .into_iter()
+        .filter(|n| {
+            s.read_link(&fddir.join(n))
                 .ok()
                 .is_some_and(|t| t.to_string_lossy().starts_with("/dev/dri/"))
         })
-        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .map(|n| n.to_string_lossy().into_owned())
         .collect();
     v.sort();
     (v, false)
@@ -606,6 +614,7 @@ impl GpuCollector {
     /// Aggiorna `info`. `pids` sono i processi noti (già letti da /proc); `dt` in secondi.
     pub fn refresh(&mut self, info: &mut GpuInfo, roots: &Roots, pids: &[PidInfo], dt: f64) {
         self.round += 1;
+        let s = &*roots.src;
         let mut devices = self.discover(roots);
 
         // 1. client DRM, deduplicati per (pdev, client-id) con il pid più basso.
@@ -628,7 +637,7 @@ impl GpuCollector {
                 }
             };
             if rescan {
-                let (fds, denied) = scan_drm_fds(&roots.proc, pid);
+                let (fds, denied) = scan_drm_fds(s, &roots.proc, pid);
                 self.fd_cache.insert(
                     pid,
                     FdEntry {
@@ -643,7 +652,7 @@ impl GpuCollector {
             };
             for fd in &entry.fds {
                 let path = roots.proc.join(pid.to_string()).join("fdinfo").join(fd);
-                let Some(c) = read_text(&path).and_then(|t| parse_fdinfo(&t)) else {
+                let Some(c) = s.read_text(&path).and_then(|t| parse_fdinfo(&t)) else {
                     continue;
                 };
                 let key = (c.pdev.clone(), c.client_id);
@@ -782,12 +791,13 @@ impl GpuCollector {
 
     fn discover(&mut self, roots: &Roots) -> Vec<Gpu> {
         let dir = roots.sys.join("class/drm");
-        let mut cards: Vec<(u32, String)> = fs::read_dir(&dir)
+        let s = &*roots.src;
+        let mut cards: Vec<(u32, String)> = s
+            .read_dir(&dir)
             .into_iter()
             .flatten()
-            .flatten()
-            .filter_map(|e| {
-                let name = e.file_name().to_string_lossy().into_owned();
+            .filter_map(|n| {
+                let name = n.to_string_lossy().into_owned();
                 let n: u32 = name.strip_prefix("card")?.parse().ok()?;
                 Some((n, name))
             })
@@ -806,7 +816,7 @@ impl GpuCollector {
                 continue;
             };
             let dev = dir.join(&card).join("device");
-            let suspended = is_suspended(&dev);
+            let suspended = is_suspended(s, &dev);
             // La regola "non svegliare" vale solo per le discrete: le integrate si leggono sempre
             // (AMD ignota → trattata da discreta finché non si è letta almeno una volta).
             let igpu = match g.driver.as_str() {
@@ -818,8 +828,9 @@ impl GpuCollector {
                 g.state = GpuState::Unsupported;
             } else if suspended && !igpu {
                 g.state = GpuState::Suspended;
-                g.d3cold =
-                    read_text(&dev.join("power_state")).is_some_and(|s| s.trim() == "D3cold");
+                g.d3cold = s
+                    .read_text(&dev.join("power_state"))
+                    .is_some_and(|s| s.trim() == "D3cold");
                 g.integrated = false;
             } else {
                 read_dynamic(roots, &mut g);

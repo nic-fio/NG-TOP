@@ -23,6 +23,7 @@ You need Rust (rustup) with the `x86_64-unknown-linux-musl` target.
 ```
 ngtop                       # full-screen interface
 ngtop -d 500 -s 3           # refresh every 500 ms, start on Processes
+ngtop alex@server           # monitor a remote machine over ssh
 ngtop --help                # all options
 ```
 
@@ -35,7 +36,9 @@ ngtop --help                # all options
 | `--no-mouse` | do not use the mouse |
 | `--256` | force 256 colors |
 | `--config FILE` | use a different configuration file |
-| `--dump` | diagnostics: print a text summary and exit |
+| `--host TARGET` | monitor a remote machine (same as giving `TARGET`) |
+| `--local` | monitor this machine even if the configuration file has `host` |
+| `--dump [TARGET]` | diagnostics: print a text summary and exit |
 
 Command-line options take precedence over the configuration file.
 
@@ -75,10 +78,37 @@ mouse = true
 colors = "auto"          # "auto", "truecolor" or "256"
 temperature = "C"        # "C" or "F"
 left_width = 40          # % of the left column of the Overview (20–70)
+# host = "alex@server"   # monitor this machine over ssh (see Remote machines)
 ```
 
 Colors are chosen from `COLORTERM`/`TERM`: truecolor if `COLORTERM` contains `truecolor` or
 `24bit`, 16 colors on the `linux` console, otherwise 256.
+
+## Remote machines
+
+`ngtop [options] [TARGET]` shows another machine instead of this one. `TARGET` is `host`,
+`user@host` or `ssh://user@host:port`; `--host TARGET` and the `host` key of the configuration
+file do the same (the command line wins; `--local` forces this machine).
+
+```
+ngtop alex@server
+ngtop --host ssh://alex@10.0.0.5:2222 -s 3
+ngtop --dump alex@server            # text summary of the remote machine
+ngtop --snapshot 120x40 alex@server
+```
+
+- ngtop uses your `ssh` command and configuration (keys, `~/.ssh/config`, `ProxyJump`, `known_hosts`).
+  Nothing is installed on the remote machine: it only needs an ssh server and a POSIX shell with `cat`.
+  Set `NGTOP_SSH` to use another ssh command (it may contain arguments).
+- The connection is opened before the interface starts, so ssh can ask for a password or a host key
+  on the terminal. Errors (host unreachable, authentication failed) are printed and the exit code is 2.
+- The top bar shows `⇄ hostname` and the round-trip time (green below 50 ms, yellow below 200 ms,
+  red above). If the connection drops, the status line says "connection lost — reconnecting…" and
+  ngtop reconnects by itself.
+- If an update takes longer than the refresh interval, ngtop widens the interval by one step
+  (250 → 500 → 1000 → 2000 → 5000 ms) and says so in the status line.
+- In this version signals, nice and the start/stop/restart/enable actions of Services are not
+  available on remote machines (the status line says so).
 
 ## Known limits
 

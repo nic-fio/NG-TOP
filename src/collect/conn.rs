@@ -9,7 +9,8 @@ use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
-use super::{Roots, read_text};
+use super::Roots;
+use crate::source::Source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Proto {
@@ -170,8 +171,8 @@ pub struct ConnInfo {
 const RETRY_EVERY: u32 = 5;
 
 /// (start_ticks, ppid) da /proc/PID/stat.
-fn read_start_ppid(proc: &Path, pid: u32) -> Option<(u64, u32)> {
-    let t = read_text(&proc.join(pid.to_string()).join("stat"))?;
+fn read_start_ppid(src: &dyn Source, proc: &Path, pid: u32) -> Option<(u64, u32)> {
+    let t = src.read_text(&proc.join(pid.to_string()).join("stat"))?;
     let f: Vec<&str> = t[t.rfind(')')? + 1..].split_whitespace().collect();
     Some((f.get(19)?.parse().ok()?, f.get(1)?.parse().ok()?))
 }
@@ -180,6 +181,7 @@ fn read_start_ppid(proc: &Path, pid: u32) -> Option<(u64, u32)> {
 /// Prima i processi già noti dalla cache; salta i thread del kernel e i processi la cui
 /// cartella fd è già risultata illeggibile (stesso pid e stesso avvio).
 fn scan_fds(
+    src: &dyn Source,
     info: &mut ConnInfo,
     proc: &Path,
     wanted: &mut HashSet<u64>,
@@ -191,9 +193,9 @@ fn scan_fds(
     order.dedup();
     let known: HashSet<u32> = order.iter().copied().collect();
     let mut complete = false;
-    let rest = std::fs::read_dir(proc).into_iter().flatten().flatten();
+    let rest = src.read_dir(proc).into_iter().flatten();
     let rest = rest
-        .filter_map(|e| e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()))
+        .filter_map(|n| n.to_str().and_then(|n| n.parse::<u32>().ok()))
         .filter(|p| !known.contains(p))
         .collect::<Vec<_>>();
     let mut seen: HashSet<u32> = HashSet::new();
@@ -209,7 +211,7 @@ fn scan_fds(
         }
         let start = |proc: &Path| match starts.and_then(|m| m.get(&pid)) {
             Some(s) => Some(*s),
-            None => read_start_ppid(proc, pid).map(|x| x.0),
+            None => read_start_ppid(src, proc, pid).map(|x| x.0),
         };
         if let Some(d) = info.denied.get(&pid)
             && start(proc) == Some(*d)
@@ -217,15 +219,16 @@ fn scan_fds(
             continue;
         }
         info.visited += 1;
-        let Ok(fds) = std::fs::read_dir(proc.join(pid.to_string()).join("fd")) else {
+        let Ok(fds) = src.read_dir(&proc.join(pid.to_string()).join("fd")) else {
             // Permesso negato o processo sparito (thread del kernel compresi): ricordato.
-            if let Some((st, _)) = read_start_ppid(proc, pid) {
+            if let Some((st, _)) = read_start_ppid(src, proc, pid) {
                 info.denied.insert(pid, st);
             }
             continue;
         };
-        for fd in fds.flatten() {
-            let Ok(target) = std::fs::read_link(fd.path()) else {
+        let fddir = proc.join(pid.to_string()).join("fd");
+        for fd in fds {
+            let Ok(target) = src.read_link(&fddir.join(fd)) else {
                 continue;
             };
             if let Some(ino) = target.to_str().and_then(socket_inode)
@@ -256,7 +259,7 @@ pub fn refresh_with(info: &mut ConnInfo, roots: &Roots, starts: Option<&HashMap<
         ("net/udp", Proto::Udp),
         ("net/udp6", Proto::Udp6),
     ] {
-        if let Some(t) = read_text(&roots.proc.join(file)) {
+        if let Some(t) = roots.src.read_text(&roots.proc.join(file)) {
             conns.extend(parse_table(&t, proto));
         }
     }
@@ -272,7 +275,7 @@ pub fn refresh_with(info: &mut ConnInfo, roots: &Roots, starts: Option<&HashMap<
         .filter(|i| !info.cache.contains_key(i) && (retry || !info.unresolved.contains(i)))
         .collect();
     if !wanted.is_empty() {
-        let found = scan_fds(info, &roots.proc, &mut wanted, starts);
+        let found = scan_fds(&*roots.src, info, &roots.proc, &mut wanted, starts);
         info.cache.extend(found);
         // Quel che resta in `wanted` non è attribuibile ora.
         info.unresolved.extend(wanted);

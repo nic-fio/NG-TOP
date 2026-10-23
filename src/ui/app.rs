@@ -21,6 +21,9 @@ use super::widgets::ColumnDef;
 use super::widgets::proctable::{column_at, follow};
 
 pub const HISTORY_LEN: usize = 600;
+/// Messaggio per le azioni disattivate in remoto (stesso testo del backend dei servizi).
+pub const REMOTE_NA: &str = "Not available on remote machines in this version";
+
 pub const INTERVALS_MS: [u64; 5] = [250, 500, 1000, 2000, 5000];
 /// Colonne su cui cicla F6 / '<' '>'.
 pub const SORT_CYCLE: [SortKey; 7] = [
@@ -133,6 +136,8 @@ pub struct App {
     pub interval_ms: u64,
     pub should_quit: bool,
     pub hostname: String,
+    /// Macchina remota (via ssh): segnali, nice e azioni sui servizi sono disattivati.
+    pub remote: bool,
     pub dialog: Option<SignalDialog>,
     /// Processi nell'ordine mostrato.
     pub rows: Vec<Process>,
@@ -191,6 +196,7 @@ impl App {
             interval_ms: 1000,
             should_quit: false,
             hostname,
+            remote: false,
             left_pct: 40,
             config: crate::config::Config::default(),
             config_path: None,
@@ -565,6 +571,43 @@ impl App {
         self.interval_ms = INTERVALS_MS[j];
     }
 
+    /// In remoto un aggiornamento più lungo dell'intervallo allarga l'intervallo al passo
+    /// successivo e lo dice nella riga di stato. `true` se l'intervallo è cambiato.
+    pub fn adapt_interval(&mut self, took: std::time::Duration) -> bool {
+        if !self.remote || took.as_millis() <= u128::from(self.interval_ms) {
+            return false;
+        }
+        let Some(next) = INTERVALS_MS.iter().copied().find(|&v| v > self.interval_ms) else {
+            return false;
+        };
+        self.interval_ms = next;
+        self.proc.set_status(
+            format!(
+                "remote update takes {} ms: interval widened to {}",
+                took.as_millis(),
+                super::view::interval_text(next)
+            ),
+            true,
+        );
+        true
+    }
+
+    /// Azioni (segnali, nice) non disponibili in remoto: mostra il motivo. `true` se bloccata.
+    fn remote_blocked(&mut self, key: KeyEvent) -> bool {
+        if !self.remote {
+            return false;
+        }
+        let action = match key.code {
+            KeyCode::F(9) => true,
+            KeyCode::Char('k') | KeyCode::F(7) | KeyCode::F(8) => self.section == Section::Processi,
+            _ => false,
+        };
+        if action {
+            self.proc.set_status(REMOTE_NA.into(), false);
+        }
+        action
+    }
+
     /// Gestisce un tasto; `true` se lo stato è cambiato (serve ridisegnare).
     pub fn on_key(&mut self, key: KeyEvent) -> bool {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -590,6 +633,9 @@ impl App {
         }
         if self.filtering {
             return self.filter_key(key);
+        }
+        if self.remote_blocked(key) {
+            return true;
         }
         if self.section == Section::ReteDischi && retedischi::on_key(self, key) {
             return true;
@@ -756,6 +802,58 @@ mod tests {
     }
 
     #[test]
+    fn azioni_disattivate_in_remoto() {
+        for (sec, code) in [
+            (Section::Processi, KeyCode::F(9)),
+            (Section::Processi, KeyCode::Char('k')),
+            (Section::Processi, KeyCode::F(7)),
+            (Section::Processi, KeyCode::F(8)),
+            (Section::Panoramica, KeyCode::F(9)),
+            (Section::ReteDischi, KeyCode::F(9)),
+        ] {
+            let mut a = app();
+            a.remote = true;
+            a.set_section(sec);
+            a.on_key(key(code));
+            assert!(a.dialog.is_none(), "{code:?}");
+            assert_eq!(a.proc.status_text().map(|s| s.0), Some(REMOTE_NA));
+            // senza remoto, F9 apre il dialogo
+        }
+        let mut a = app();
+        a.on_key(key(KeyCode::F(9)));
+        assert!(a.dialog.is_some());
+        // 'k' mentre si digita il filtro resta testo
+        let mut a = app();
+        a.remote = true;
+        a.on_key(key(KeyCode::Char('/')));
+        a.on_key(key(KeyCode::Char('k')));
+        assert_eq!(a.filter, "k");
+        assert!(a.proc.status_text().is_none());
+    }
+
+    #[test]
+    fn intervallo_si_allarga_in_remoto() {
+        use std::time::Duration;
+        let mut a = app();
+        let ms = Duration::from_millis;
+        // locale: mai
+        assert!(!a.adapt_interval(ms(3000)));
+        a.remote = true;
+        a.interval_ms = 250;
+        assert!(!a.adapt_interval(ms(250)));
+        assert!(a.adapt_interval(ms(300)));
+        assert_eq!(a.interval_ms, 500);
+        assert!(a.proc.status_text().unwrap().0.contains("widened to 500ms"));
+        assert!(a.adapt_interval(ms(700)));
+        assert!(a.adapt_interval(ms(1500)));
+        assert_eq!(a.interval_ms, 2000);
+        assert!(a.adapt_interval(ms(2500)));
+        assert_eq!(a.interval_ms, 5000);
+        assert!(!a.adapt_interval(ms(9000)));
+        assert_eq!(a.interval_ms, 5000);
+    }
+
+    #[test]
     fn layout_automatico() {
         assert_eq!(LayoutMode::for_size(100, 30), LayoutMode::Grande);
         assert_eq!(LayoutMode::for_size(99, 40), LayoutMode::Compatto);
@@ -844,11 +942,8 @@ mod tests {
         a.net_hist
             .insert("veth9".into(), (History::raw(4), History::raw(4)));
         a.disk_hist.insert("sdz".into(), History::raw(4));
-        let sys = System::new(Roots {
-            proc: std::env::temp_dir().join("ngtop-nessuna"),
-            sys: std::env::temp_dir().join("ngtop-nessuna"),
-            etc: std::env::temp_dir().join("ngtop-nessuna"),
-        });
+        let nessuna = std::env::temp_dir().join("ngtop-nessuna");
+        let sys = System::new(Roots::with_dirs(nessuna.clone(), nessuna.clone(), nessuna));
         a.update(&sys);
         assert!(a.net_hist.is_empty());
         assert_eq!(a.disk_hist.len(), 1);

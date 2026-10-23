@@ -1,0 +1,12 @@
+1.030s systemd-binfmt.service
+ 696ms apt-daily-upgrade.service
+ 585ms apt-daily.service
+ 535ms dev-sda2.device
+ 413ms ssh.service
+ 322ms systemd-journal-flush.service
+ 249ms man-db.service
+ 225ms logrotate.service
+ 215ms upower.service
+ 201ms power-profiles-daemon.service
+ 197ms user@1000.service
+ 194ms accounts-daemon.service
