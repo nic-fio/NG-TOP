@@ -1,9 +1,15 @@
 FROM docker.io/library/alpine:3.20
-RUN apk add --no-cache openssh-server && ssh-keygen -A \
+RUN apk add --no-cache openssh-server sudo && ssh-keygen -A \
  && adduser -D -s /bin/sh tester && passwd -u tester >/dev/null 2>&1 || true
 RUN sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config \
- && echo "AllowUsers tester" >> /etc/ssh/sshd_config
+ && echo "AllowUsers tester sudon sudop" >> /etc/ssh/sshd_config
 # alpine locks new accounts: give an unusable but unlocked password hash
 RUN echo 'tester:*' | chpasswd -e 2>/dev/null; sed -i 's/^tester:!/tester:*/' /etc/shadow
+# users for the action tests: sudon = sudo NOPASSWD, sudop = sudo with password "pw-test-1"
+RUN adduser -D -s /bin/sh sudon && adduser -D -s /bin/sh sudop && sed -i 's/^sudon:!/sudon:*/' /etc/shadow \
+ && echo 'sudop:pw-test-1' | chpasswd \
+ && grep -q '^#includedir /etc/sudoers.d' /etc/sudoers || echo '#includedir /etc/sudoers.d' >> /etc/sudoers
+RUN mkdir -p /etc/sudoers.d && printf 'Defaults logfile=/var/log/sudo.log\nsudon ALL=(ALL) NOPASSWD: ALL\nsudop ALL=(ALL) ALL\n' > /etc/sudoers.d/ngtop \
+ && chmod 440 /etc/sudoers.d/ngtop
 EXPOSE 22
 CMD ["/usr/sbin/sshd", "-D", "-e"]

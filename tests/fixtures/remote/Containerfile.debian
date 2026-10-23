@@ -1,6 +1,11 @@
 FROM docker.io/library/debian:12
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server procps && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server procps sudo && rm -rf /var/lib/apt/lists/* \
  && mkdir -p /run/sshd && useradd -m -s /bin/bash tester && passwd -u tester >/dev/null 2>&1 || true
 RUN sed -i 's/^tester:!/tester:*/' /etc/shadow
+# users for the action tests: sudon = NOPASSWD, sudop = password "pw-test-1", sudotty = NOPASSWD but requiretty
+RUN for u in sudon sudop sudotty; do useradd -m -s /bin/bash $u; done && sed -i 's/^\(sudon\|sudotty\):!/\1:*/' /etc/shadow \
+ && echo 'sudop:pw-test-1' | chpasswd \
+ && printf 'Defaults logfile=/var/log/sudo.log\nDefaults:sudotty requiretty\nsudon ALL=(ALL) NOPASSWD: ALL\nsudotty ALL=(ALL) NOPASSWD: ALL\nsudop ALL=(ALL) ALL\n' > /etc/sudoers.d/ngtop \
+ && chmod 440 /etc/sudoers.d/ngtop
 EXPOSE 22
 CMD ["/usr/sbin/sshd", "-D", "-e"]
