@@ -56,7 +56,8 @@ S_ROOT = p("To see everything, run ngtop as root:", lead=True) + \
 S_REMOTE = p("On a <b>remote machine</b> (" + rif("Monitoring another machine") + ") the rules are the same, but they apply to the <b>user you log in "
              "as on the server</b>, not to you on your PC. If you log in as a normal user, you see the dashes of the table above for the other users' processes. "
              "To see everything, log in as root: " + c("ngtop root@server") + " (if the server allows it). The journal of the server needs the group "
-             "<code>systemd-journal</code>, or root.", lead=True)
+             "<code>systemd-journal</code>, or root. Instead of logging in as root you can use " + c("ngtop --sudo alex@server") + ", which runs the program on the server "
+             "through <code>sudo</code> (" + rif("Acting as root: --sudo") + ").", lead=True)
 
 S_SAFE = p("Is it safe to leave ngtop open as root? ngtop only reads files and, when you ask, sends a signal, changes a nice value, or "
            "asks systemd for an action. It does not open network ports, does not write anything outside the configuration file "

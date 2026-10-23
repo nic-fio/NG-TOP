@@ -21,9 +21,6 @@ use super::widgets::ColumnDef;
 use super::widgets::proctable::{column_at, follow};
 
 pub const HISTORY_LEN: usize = 600;
-/// Messaggio per le azioni disattivate in remoto (stesso testo del backend dei servizi).
-pub const REMOTE_NA: &str = crate::collect::services::remote::REMOTE_ACTION_MSG;
-
 /// Aggiornamenti remoti lenti consecutivi prima di allargare l'intervallo.
 const SLOW_STREAK: u8 = 3;
 
@@ -139,8 +136,11 @@ pub struct App {
     pub interval_ms: u64,
     pub should_quit: bool,
     pub hostname: String,
-    /// Macchina remota (via ssh): segnali, nice e azioni sui servizi sono disattivati.
+    /// Macchina remota (via ssh): le azioni passano dal server.
     pub remote: bool,
+    /// Destinazione remota come l'ha scritta l'utente (vuota in locale) e se i comandi girano da root.
+    pub remote_target: String,
+    pub remote_root: bool,
     /// Aggiornamenti remoti lenti consecutivi (l'intervallo si allarga solo se persistono).
     slow_streak: u8,
     pub dialog: Option<SignalDialog>,
@@ -202,6 +202,8 @@ impl App {
             should_quit: false,
             hostname,
             remote: false,
+            remote_target: String::new(),
+            remote_root: false,
             slow_streak: 0,
             left_pct: 40,
             config: crate::config::Config::default(),
@@ -259,6 +261,10 @@ impl App {
                 .or_insert_with(|| (History::raw(HISTORY_LEN), History::raw(HISTORY_LEN)));
             rx.push(i.rx_rate);
             tx.push(i.tx_rate);
+        }
+        if let Some(st) = sys.remote_status() {
+            self.remote_target = st.target;
+            self.remote_root = st.root;
         }
         self.gpu_pdevs = sys.gpu.devices.iter().map(|g| g.pdev.clone()).collect();
         self.gpu_pids = sys.gpu.procs.iter().map(|p| p.pid).collect();
@@ -608,22 +614,6 @@ impl App {
         true
     }
 
-    /// Azioni (segnali, nice) non disponibili in remoto: mostra il motivo. `true` se bloccata.
-    fn remote_blocked(&mut self, key: KeyEvent) -> bool {
-        if !self.remote {
-            return false;
-        }
-        let action = match key.code {
-            KeyCode::F(9) => true,
-            KeyCode::Char('k') | KeyCode::F(7) | KeyCode::F(8) => self.section == Section::Processi,
-            _ => false,
-        };
-        if action {
-            self.proc.set_status(REMOTE_NA.into(), false);
-        }
-        action
-    }
-
     /// Gestisce un tasto; `true` se lo stato è cambiato (serve ridisegnare).
     pub fn on_key(&mut self, key: KeyEvent) -> bool {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
@@ -649,9 +639,6 @@ impl App {
         }
         if self.filtering {
             return self.filter_key(key);
-        }
-        if self.remote_blocked(key) {
-            return true;
         }
         if self.section == Section::ReteDischi && retedischi::on_key(self, key) {
             return true;
@@ -818,26 +805,23 @@ mod tests {
     }
 
     #[test]
-    fn azioni_disattivate_in_remoto() {
+    fn azioni_in_remoto_passano_dal_server() {
+        use crate::ui::sections::processi::FakeActions;
+        // F9, k e F7/F8 funzionano anche in remoto, tramite le azioni della macchina
         for (sec, code) in [
             (Section::Processi, KeyCode::F(9)),
             (Section::Processi, KeyCode::Char('k')),
-            (Section::Processi, KeyCode::F(7)),
-            (Section::Processi, KeyCode::F(8)),
             (Section::Panoramica, KeyCode::F(9)),
-            (Section::ReteDischi, KeyCode::F(9)),
         ] {
             let mut a = app();
             a.remote = true;
+            a.remote_target = "alex@server".into();
+            a.proc.act = std::sync::Arc::new(FakeActions::default());
             a.set_section(sec);
             a.on_key(key(code));
-            assert!(a.dialog.is_none(), "{code:?}");
-            assert_eq!(a.proc.status_text().map(|s| s.0), Some(REMOTE_NA));
-            // senza remoto, F9 apre il dialogo
+            let d = a.dialog.as_ref().expect("dialogo aperto");
+            assert!(d.lines().iter().any(|l| l == "On: alex@server"), "{code:?}");
         }
-        let mut a = app();
-        a.on_key(key(KeyCode::F(9)));
-        assert!(a.dialog.is_some());
         // 'k' mentre si digita il filtro resta testo
         let mut a = app();
         a.remote = true;
@@ -1036,7 +1020,7 @@ mod tests {
     fn dialogo() {
         let mut a = app();
         // Invio reale sostituito da un finto: nei test non si segnalano processi veri.
-        a.proc.kill = |_, _, _, _| Ok(());
+        a.proc.act = std::sync::Arc::new(crate::ui::sections::processi::FakeActions::default());
         a.select_index(2);
         a.on_key(key(KeyCode::F(9)));
         let d = a.dialog.clone().unwrap();

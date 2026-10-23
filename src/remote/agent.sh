@@ -260,8 +260,113 @@ x() {
   e 0
 }
 
+# --- azioni sui processi -------------------------------------------------------------------------------------
+# ng_int VALORE CIFRE: solo cifre decimali, al massimo CIFRE (mai testo interpretato dalla shell)
+ng_int() {
+  case $1 in ''|*[!0-9]*) return 1 ;; esac
+  [ ${#1} -le "$2" ]
+}
+# ng_pos VALORE: intero valido e diverso da zero (kill 0 colpirebbe un gruppo di processi)
+ng_pos() {
+  ng_int "$1" 10 || return 1
+  case $1 in *[!0]*) return 0 ;; esac
+  return 1
+}
+# ng_stat PID: legge /proc/PID/stat; imposta NGS_PPID, NGS_NICE, NGS_START (campi 4, 19, 22). Il nome (campo 2)
+# puo' contenere spazi, ")" e newline: si taglia fino all'ULTIMO ") ". Ritorna 1 se il processo non c'e'.
+ng_stat() {
+  [ -r "/proc/$1/stat" ] || return 1
+  ng_sb=
+  ng_sl=
+  while IFS= read -r ng_sl; do ng_sb=$ng_sb$ng_sl$NL; done 2>/dev/null < "/proc/$1/stat"
+  ng_sb=$ng_sb$ng_sl
+  case $ng_sb in *') '*) ;; *) return 1 ;; esac
+  ng_sb=${ng_sb##*') '}
+  IFS=' '
+  set -- $ng_sb
+  IFS=
+  [ $# -ge 20 ] || return 1
+  NGS_PPID=$2
+  shift 16
+  NGS_NICE=$1
+  shift 3
+  NGS_START=$1
+  ng_int "$NGS_START" 20 && ng_int "$NGS_PPID" 10
+}
+# j PID...: avvio (starttime) di ogni pid, una riga ciascuno ("-" = non esiste)
+j() {
+  printf '%s J\n' "$NG"
+  for ng_a; do
+    if ng_pos "$ng_a" && ng_stat "$ng_a"; then printf '%s\n' "$NGS_START"; else printf '%s\n' -; fi
+  done
+  e 0
+}
+# esito di un comando fallito, da testo del messaggio (LC_ALL=C): gone, perm (EPERM), acc (EACCES) o err
+ng_why() {
+  case $1 in
+    *'No such process'*) echo gone ;;
+    *'not permitted'*) echo perm ;;
+    *'ermission denied'*) echo acc ;;
+    *) echo err ;;
+  esac
+}
+# a SEGNALE PID AVVIO [PID AVVIO...]: per ogni coppia rilegge l'avvio e fa kill SOLO se coincide, nella stessa
+# chiamata (un pid riusato non viene mai colpito). Una riga di esito per coppia: ok gone reused perm acc err bad
+a() {
+  ng_sig=$1
+  shift
+  printf '%s O\n' "$NG"
+  ng_ok=
+  if ng_int "$ng_sig" 2 && [ "$ng_sig" -ge 1 ] && [ "$ng_sig" -le 64 ]; then ng_ok=1; fi
+  # numeri di segnale come su Linux x86; per nome, perche' sugli altri processori (mips, sparc) cambiano
+  ng_sn=
+  case $ng_sig in
+    1) ng_sn=HUP ;; 2) ng_sn=INT ;; 3) ng_sn=QUIT ;; 6) ng_sn=ABRT ;; 9) ng_sn=KILL ;; 10) ng_sn=USR1 ;;
+    12) ng_sn=USR2 ;; 14) ng_sn=ALRM ;; 15) ng_sn=TERM ;; 18) ng_sn=CONT ;; 19) ng_sn=STOP ;; 20) ng_sn=TSTP ;;
+  esac
+  while [ $# -ge 2 ]; do
+    ng_pid=$1
+    ng_exp=$2
+    shift 2
+    if [ -z "$ng_ok" ] || ! ng_pos "$ng_pid" || ! ng_int "$ng_exp" 20; then echo bad
+    elif ! ng_stat "$ng_pid"; then echo gone
+    elif [ "$NGS_START" != "$ng_exp" ]; then echo reused
+    elif [ -n "$ng_sn" ]; then
+      if ng_m=$(kill -s "$ng_sn" "$ng_pid" 2>&1); then echo ok; else ng_why "$ng_m"; fi
+    else
+      if ng_m=$(kill -"$ng_sig" "$ng_pid" 2>&1); then echo ok; else ng_why "$ng_m"; fi
+    fi
+  done
+  e 0
+}
+# r NICE PID AVVIO: stessa verifica, poi renice con valore ASSOLUTO: "renice N -p PID" (con -n busybox somma al nice
+# attuale, util-linux no; senza -n entrambi sono assoluti); a cose fatte rilegge il nice e lo confronta. Esito su una riga: ok gone reused perm acc err bad
+r() {
+  printf '%s O\n' "$NG"
+  ng_np=${1#-}
+  if ! ng_int "$ng_np" 2 || [ "$1" -lt -20 ] || [ "$1" -gt 19 ] || ! ng_pos "$2" || ! ng_int "$3" 20; then echo bad
+  elif ! ng_stat "$2"; then echo gone
+  elif [ "$NGS_START" != "$3" ]; then echo reused
+  elif ng_m=$(renice "$1" -p "$2" 2>&1); then
+    if ng_stat "$2" && [ "$NGS_NICE" = "$1" ]; then echo ok; else echo err; fi
+  else ng_why "$ng_m"; fi
+  e 0
+}
+
 ng_main() {
-  printf '%s READY %s%s%s %s %s\n' "$NG" "${STATC:-0}" "${STATF:-0}" "${HAVE_TIMEOUT:-0}" "$PAGESIZE" "$CLKTCK"
+  # uid e catena di antenati dello script (lui stesso, sudo, sshd... fino a PID 1 escluso): servono al client
+  # per "root" e per proteggere la propria sessione
+  NGUID=$(id -u 2>/dev/null)
+  ng_int "$NGUID" 10 || NGUID=-
+  NGCHAIN=
+  ng_c=$$
+  ng_n=0
+  while [ "$ng_c" -gt 1 ] && [ $ng_n -lt 64 ] && ng_stat "$ng_c"; do
+    NGCHAIN=$NGCHAIN${NGCHAIN:+,}$ng_c
+    ng_c=$NGS_PPID
+    ng_n=$((ng_n + 1))
+  done
+  printf '%s READY %s%s%s %s %s %s %s\n' "$NG" "${STATC:-0}" "${STATF:-0}" "${HAVE_TIMEOUT:-0}" "$PAGESIZE" "$CLKTCK" "$NGUID" "${NGCHAIN:--}"
   while read -r ng_line; do
     eval "$ng_line"
   done

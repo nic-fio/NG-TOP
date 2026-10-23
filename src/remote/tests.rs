@@ -360,6 +360,7 @@ fn ssh_inesistente_da_errore_chiaro() {
         ],
         target: Target::parse("h").unwrap(),
         compress: false,
+        sudo: sudo::SudoMode::Off,
     };
     let e = source::open(tr, "h".into()).err().expect("errore");
     assert!(e.to_string().contains("boom"), "{e}");
@@ -661,6 +662,7 @@ fn troppo_output_prima_di_ready() {
         ],
         target: Target::parse("h").unwrap(),
         compress: false,
+        sudo: sudo::SudoMode::Off,
     };
     let t = Instant::now();
     let e = source::open(tr, "h".into()).err().expect("errore");
@@ -756,4 +758,330 @@ fn mountinfo_riconosce_i_mount_di_rete() {
     let mut c = Vec::new();
     c.extend(super::source::test_support::mountinfo_net_for_test(mi));
     assert_eq!(c, vec![b"/mnt/nfs dir".to_vec()]);
+}
+
+// --- azioni sui processi ---------------------------------------------------------------------------------
+
+use crate::source::actions::{ERR_GONE, ERR_REUSED};
+
+/// Figlio di prova: un `sleep` che il test possiede (e uccide alla fine).
+struct Figlio(std::process::Child);
+
+impl Figlio {
+    fn nuovo() -> Figlio {
+        Figlio(
+            std::process::Command::new("sleep")
+                .arg("60")
+                .spawn()
+                .unwrap(),
+        )
+    }
+    fn pid(&self) -> u32 {
+        self.0.id()
+    }
+    fn vivo(&mut self) -> bool {
+        self.0.try_wait().unwrap().is_none()
+    }
+}
+
+impl Drop for Figlio {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn nice_di(pid: u32) -> i32 {
+    let t = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    let r = &t[t.rfind(") ").unwrap() + 2..];
+    r.split(' ').nth(16).unwrap().parse().unwrap()
+}
+
+#[test]
+fn avvii_dal_server_uguali_a_locale() {
+    let (src, _) = connect_local_sh().unwrap();
+    let act = actions_for(&src);
+    let f = Figlio::nuovo();
+    let locale = crate::source::actions::live_start(Path::new("/proc"), f.pid());
+    assert!(locale.is_some());
+    // pid inesistente e pid non valido: None, ordine rispettato
+    let r = act.live_starts(&[f.pid(), 4_000_000, 0, f.pid()]);
+    assert_eq!(r, vec![locale, None, None, locale]);
+    assert_eq!(act.live_starts(&[]), Vec::<Option<u64>>::new());
+}
+
+#[test]
+fn segnale_con_verifica_dell_avvio() {
+    let (src, _) = connect_local_sh().unwrap();
+    let act = actions_for(&src);
+    let mut f = Figlio::nuovo();
+    let start = act.live_starts(&[f.pid()])[0].unwrap();
+    // pid "riusato": avvio diverso -> nessun segnale
+    assert_eq!(
+        act.signal(&[(f.pid(), start + 1)], 15),
+        vec![Err(ERR_REUSED.to_string())]
+    );
+    assert!(f.vivo());
+    // STOP e CONT arrivano (stato T e poi di nuovo S)
+    assert_eq!(act.signal(&[(f.pid(), start)], 19), vec![Ok(())]);
+    std::thread::sleep(Duration::from_millis(100));
+    let stato = |p: u32| {
+        let t = std::fs::read_to_string(format!("/proc/{p}/stat")).unwrap();
+        t[t.rfind(") ").unwrap() + 2..].chars().next().unwrap()
+    };
+    assert_eq!(stato(f.pid()), 'T');
+    assert_eq!(act.signal(&[(f.pid(), start)], 18), vec![Ok(())]);
+    // più bersagli: uno vero, uno inesistente, uno riusato
+    let g = Figlio::nuovo();
+    let gs = act.live_starts(&[g.pid()])[0].unwrap();
+    let r = act.signal(&[(f.pid(), start), (4_000_000, 5), (g.pid(), gs + 7)], 15);
+    assert_eq!(
+        r,
+        vec![
+            Ok(()),
+            Err(ERR_GONE.to_string()),
+            Err(ERR_REUSED.to_string())
+        ]
+    );
+    let t0 = Instant::now();
+    while f.vivo() && t0.elapsed() < Duration::from_secs(3) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!f.vivo());
+    // dopo la morte: ESRCH
+    assert_eq!(
+        act.signal(&[(f.pid(), start)], 15),
+        vec![Err(ERR_GONE.to_string())]
+    );
+}
+
+#[test]
+fn segnali_e_pid_non_validi_non_partono() {
+    let (src, _) = connect_local_sh().unwrap();
+    let act = actions_for(&src);
+    let mut f = Figlio::nuovo();
+    let start = act.live_starts(&[f.pid()])[0].unwrap();
+    for sig in [0, -9, 65, i32::MIN] {
+        assert!(act.signal(&[(f.pid(), start)], sig)[0].is_err(), "{sig}");
+    }
+    // pid 0 = gruppo di processi: mai
+    assert!(act.signal(&[(0, 0)], 15)[0].is_err());
+    assert!(act.set_nice(0, 0, 5).is_err());
+    assert!(act.set_nice(f.pid(), start, 20).is_err());
+    assert!(act.set_nice(f.pid(), start, -21).is_err());
+    assert!(f.vivo());
+    assert!(sent_has_no_garbage(&src));
+}
+
+/// Nessuna richiesta d'azione conteneva testo diverso da cifre, spazi e le lettere dei comandi.
+fn sent_has_no_garbage(src: &RemoteSource) -> bool {
+    source::test_support::sent_for_test(src)
+        .split(|&b| b == b'\n')
+        .filter(|l| matches!(l.first(), Some(b'a' | b'r' | b'j')) && l.get(1) == Some(&b' '))
+        .all(|l| {
+            l[1..]
+                .iter()
+                .all(|&b| b.is_ascii_digit() || b == b' ' || b == b'-')
+        })
+}
+
+#[test]
+fn nice_assoluto_con_verifica() {
+    let (src, _) = connect_local_sh().unwrap();
+    let act = actions_for(&src);
+    let f = Figlio::nuovo();
+    let start = act.live_starts(&[f.pid()])[0].unwrap();
+    assert_eq!(
+        act.set_nice(f.pid(), start + 1, 5),
+        Err(ERR_REUSED.to_string())
+    );
+    assert_eq!(nice_di(f.pid()), 0);
+    assert_eq!(act.set_nice(f.pid(), start, 5), Ok(()));
+    assert_eq!(nice_di(f.pid()), 5);
+    // assoluto, non relativo: ripetere dà lo stesso valore
+    assert_eq!(act.set_nice(f.pid(), start, 5), Ok(()));
+    assert_eq!(nice_di(f.pid()), 5);
+    // abbassare senza root: rifiutato
+    if rustix::process::getuid().as_raw() != 0 {
+        assert!(act.set_nice(f.pid(), start, 1).is_err());
+        assert_eq!(nice_di(f.pid()), 5);
+    }
+    assert_eq!(act.set_nice(4_000_000, 1, 3), Err(ERR_GONE.to_string()));
+}
+
+#[test]
+fn pid_protetti() {
+    let (src, _) = connect_local_sh().unwrap();
+    let act = actions_for(&src);
+    assert_eq!(act.protected(1), Some("PID 1 (init)"));
+    let sh = src.session_pid_for_test().unwrap();
+    assert_eq!(act.protected(sh), Some("the ngtop session on the server"));
+    // il processo di prova non è protetto
+    let f = Figlio::nuovo();
+    assert_eq!(act.protected(f.pid()), None);
+    assert_eq!(act.protected(4_000_000), None);
+}
+
+#[test]
+fn root_dal_server() {
+    let (src, _) = connect_local_sh().unwrap();
+    let root = rustix::process::getuid().as_raw() == 0;
+    assert_eq!(src.remote_status().unwrap().root, root);
+}
+
+#[test]
+fn azioni_dopo_riconnessione() {
+    let (src, _) = connect_local_sh().unwrap();
+    let act = actions_for(&src);
+    let f = Figlio::nuovo();
+    src.kill_session_for_test();
+    // finché non si riconnette le azioni danno un errore, non un blocco né un panic
+    let t0 = Instant::now();
+    let start = loop {
+        if let Some(s) = act.live_starts(&[f.pid()])[0] {
+            break s;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "mai riconnesso");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(act.signal(&[(f.pid(), start)], 15), vec![Ok(())]);
+}
+
+// --- sudo con ssh e sudo finti ---------------------------------------------------------------------------
+
+/// Cartella con un `ssh` finto (esegue il comando remoto con `sh -c`, come fa sshd) e un `sudo` finto.
+/// `sudo -n`: `n_msg` su stderr ed esce 1 (vuoto = riesce). `sudo -S`: legge UNA riga e la confronta con
+/// "giusta"; se è sbagliata scrive "Sorry, try again." e, come sudo vero, legge un secondo tentativo
+/// (registrato in `leak` se arriva).
+struct SudoFinto {
+    dir: PathBuf,
+}
+
+impl SudoFinto {
+    fn nuovo(nome: &str, n_msg: &str) -> SudoFinto {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmpdir(nome);
+        let ssh = format!(
+            "#!/bin/sh\nPATH={d}:$PATH\nexport PATH\nwhile [ $# -gt 0 ]; do case $1 in -T|-C) shift;; -o|-p) shift 2;; *) break;; esac; done\nshift\nexec sh -c \"$*\"\n",
+            d = dir.display()
+        );
+        let sudo = format!(
+            r#"#!/bin/sh
+mode=
+while [ $# -gt 0 ]; do case $1 in -n) mode=n; shift;; -S) mode=S; shift;; -k) shift;; -p) shift 2;; *) break;; esac; done
+if [ "$mode" = n ]; then
+  [ -z '{n_msg}' ] && exec "$@"
+  echo '{n_msg}' >&2; exit 1
+fi
+IFS= read -r pw
+if [ "$pw" = giusta ]; then exec "$@"; fi
+echo "Sorry, try again." >&2
+IFS= read -r p2 && echo "LETTA: $p2" >> {leak}
+exit 1
+"#,
+            leak = dir.join("leak").display()
+        );
+        for (n, t) in [("ssh", ssh), ("sudo", sudo)] {
+            std::fs::write(dir.join(n), t).unwrap();
+            std::fs::set_permissions(dir.join(n), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        SudoFinto { dir }
+    }
+    fn transport(&self, sudo: sudo::SudoMode) -> session::Transport {
+        session::Transport::Ssh {
+            cmd: vec![self.dir.join("ssh").to_string_lossy().into_owned()],
+            target: Target::parse("h").unwrap(),
+            compress: false,
+            sudo,
+        }
+    }
+    fn lette(&self) -> String {
+        std::fs::read_to_string(self.dir.join("leak")).unwrap_or_default()
+    }
+}
+
+#[test]
+fn sudo_senza_password_riesce() {
+    let f = SudoFinto::nuovo("sudo-n-ok", "");
+    let (src, _) = source::open(f.transport(sudo::SudoMode::NoPasswd), "h".into()).unwrap();
+    assert!(src.remote_status().unwrap().state == RemoteState::Connected);
+    // le azioni passano anche da qui
+    let act = actions_for(&src);
+    let c = Figlio::nuovo();
+    assert!(act.live_starts(&[c.pid()])[0].is_some());
+}
+
+#[test]
+fn sudo_chiede_la_password_se_serve() {
+    let f = SudoFinto::nuovo("sudo-n-pw", "sudo: a password is required");
+    let e = source::open(f.transport(sudo::SudoMode::NoPasswd), "h".into())
+        .err()
+        .expect("errore");
+    assert!(sudo::needs_password(&e), "{e}");
+}
+
+#[test]
+fn sudo_password_giusta() {
+    let f = SudoFinto::nuovo("sudo-ok", "sudo: a password is required");
+    let pw = sudo::Password::from_str_for_test("giusta");
+    let (src, _) = source::open(f.transport(sudo::SudoMode::Password(pw)), "h".into()).unwrap();
+    assert!(src.remote_status().unwrap().state == RemoteState::Connected);
+    let act = actions_for(&src);
+    let c = Figlio::nuovo();
+    let s = act.live_starts(&[c.pid()])[0].unwrap();
+    assert_eq!(act.signal(&[(c.pid(), s)], 15), vec![Ok(())]);
+    assert_eq!(f.lette(), "");
+}
+
+#[test]
+fn sudo_password_sbagliata_nessuna_riga_dello_script() {
+    let f = SudoFinto::nuovo("sudo-ko", "sudo: a password is required");
+    let pw = sudo::Password::from_str_for_test("sbagliata");
+    let t0 = Instant::now();
+    let e = source::open(f.transport(sudo::SudoMode::Password(pw)), "h".into())
+        .err()
+        .expect("errore");
+    assert_eq!(e.to_string(), "sudo: wrong password");
+    assert!(t0.elapsed() < Duration::from_secs(10));
+    // sudo (finto) avrebbe letto qualunque riga seguente come secondo tentativo: nessuna è arrivata
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(f.lette(), "");
+    assert!(!e.to_string().contains("sbagliata"));
+}
+
+#[test]
+fn sudo_errori_riconosciuti() {
+    for (msg, atteso) in [
+        (
+            "sudo: sorry, you must have a tty to run sudo",
+            "sudo: a terminal is required (requiretty)",
+        ),
+        (
+            "bob is not in the sudoers file.",
+            "sudo: not allowed for this user",
+        ),
+    ] {
+        let f = SudoFinto::nuovo("sudo-err", msg);
+        let e = source::open(f.transport(sudo::SudoMode::NoPasswd), "h".into())
+            .err()
+            .expect("errore");
+        assert_eq!(e.to_string(), atteso);
+        assert!(!sudo::needs_password(&e));
+    }
+}
+
+#[test]
+fn riconnessione_con_sudo_usa_la_password_in_memoria() {
+    let f = SudoFinto::nuovo("sudo-rec", "sudo: a password is required");
+    let pw = sudo::Password::from_str_for_test("giusta");
+    let (src, _) = source::open(f.transport(sudo::SudoMode::Password(pw)), "h".into()).unwrap();
+    src.kill_session_for_test();
+    let act = actions_for(&src);
+    let c = Figlio::nuovo();
+    let t0 = Instant::now();
+    while act.live_starts(&[c.pid()])[0].is_none() {
+        assert!(t0.elapsed() < Duration::from_secs(10), "mai riconnesso");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(f.lette(), "");
 }

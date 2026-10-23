@@ -21,6 +21,9 @@ SIGNAL_SEQ = seq([
     (1, 3, "pidfd_send_signal(fd)"),
 ], "«FIG» — How a signal reaches only the process the user chose")
 
+REMOTE_NOTE = note("On a remote machine there is no pidfd. The same identity (pid and start time) is checked by the script on the server in the same command that sends the signal; "
+                   "the small window that remains is described in " + rif("Actions on the server") + ".", "Remote.")
+
 S1 = p("A signal sent to a pid is dangerous for one reason: <b>pids are reused</b>. Between the moment the user sees "
        "a process in the list and the moment they press Enter, that process may have ended and the kernel may have given "
        "its number to another one. A naive “kill the pid” would then kill an innocent. ngtop closes this window in three "
@@ -45,7 +48,8 @@ S1 = p("A signal sent to a pid is dangerous for one reason: <b>pids are reused</
         ["The kernel refuses (EPERM, EACCES)", "The error is shown as text, e.g. “permission denied (EPERM)”"],
     ], "«TAB» — The outcomes of send_signal") + \
     p("No C library is involved: the calls are in " + c("rustix") + " (" + c("pidfd_open") + ", " + c("pidfd_send_signal") + ", " + c("kill_process") + ", "
-      + c("setpriority_process") + "), which makes the raw system calls.")
+      + c("setpriority_process") + "), which makes the raw system calls.") + \
+    REMOTE_NOTE
 
 S2 = p("The dialog (" + c("SignalDialog") + ", key " + key("F9") + " or " + key("k") + ") lets the user choose a signal and whether it also goes to the descendants.", lead=True) + \
     table(["Signal", "Name", "Description in the dialog"], [

@@ -71,12 +71,14 @@ pub fn hostname(sys: &System) -> String {
 
 /// Sezione Servizi per la macchina in uso (backend remoto a comandi se si è in remoto).
 pub fn services_for(sys: &System) -> sections::servizi::Servizi {
-    if sys.remote_status().is_some() {
-        sections::servizi::Servizi::remote(
+    if let Some(st) = sys.remote_status() {
+        let mut s = sections::servizi::Servizi::remote(
             sys.roots.src.clone(),
             sys.roots.run.clone(),
             sys.cpu.logical.max(1),
-        )
+        );
+        s.machine = Some((st.target.clone(), st.root));
+        s
     } else {
         sections::servizi::Servizi::new()
     }
@@ -109,6 +111,7 @@ pub fn run(opts: RunOptions) -> io::Result<()> {
     let size = crossterm::terminal::size().unwrap_or((80, 24));
     let mut app = App::new(size, hostname(&sys));
     app.remote = sys.remote_status().is_some();
+    app.proc.act = sys.roots.act.clone();
     app.servizi = services_for(&sys);
     app.tz = tz::Tz::load(&sys.roots);
     let e = &opts.effective;

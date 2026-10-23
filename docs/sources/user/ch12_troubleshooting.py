@@ -114,8 +114,23 @@ S_RSLOW = p("<b>The data of a remote machine arrive slowly.</b> Look at the late
             "the interval, ngtop widens it by itself and says so on the status line (" + rif("Slow networks") + "). On a very slow link a longer "
             "interval, with " + key("+") + ", is the right setting.", lead=True)
 
-S_RNO = p("<b>Signals, nice and service actions do nothing on a remote machine.</b> That is expected in this version: the status line says " +
-          ui("Not available on remote machines in this version") + " (" + rif("What does not work remotely") + ").", lead=True)
+S_RNO = p("<b>An action on a remote machine fails.</b> The status line gives the reason. The common ones:", lead=True) + \
+    table(["Message", "What to do"], [
+        [ui("needs root: start ngtop with --sudo"), "The user you log in as is not allowed to manage services. Start ngtop with " + c("--sudo") + " (" + rif("Acting as root: --sudo") + ")."],
+        [ui("root is needed to lower the nice value"), "Lowering the nice value needs root, also on the server. Use " + c("--sudo") + "."],
+        ["The process has exited, or its pid was reused", "Nothing was sent: the process is no longer the one you selected."],
+        [ui("User units are not available on remote machines"), "ssh does not reach the bus of the user. Only system units can be managed remotely."],
+    ], "«TAB» — Common messages of remote actions") + \
+    p("The exact wording of the messages can differ a little; the meaning is the one in the table (" + rif("Actions on a remote machine") + ").")
+
+S_RSUDO = p("<b>sudo does not work with --sudo.</b> ngtop stops before the interface opens and says what it understood:", lead=True) + \
+    ul(["<code>sudo: wrong password</code>: type it again. ngtop sends nothing but the password until <code>sudo</code> has accepted it, so a mistake leaves no trace of the script in the logs of the server.",
+        "<b>A terminal is required</b> (<code>requiretty</code>): the server's sudoers file wants a terminal for sudo. Use a user with <code>NOPASSWD</code> that does not need it, "
+        "remove <code>requiretty</code> for that user, or log in as root.",
+        "<b>Not allowed for this user</b>: your user is not in the sudoers of the server. Ask its administrator, or log in as root.",
+        "<b>The password prompt does not appear</b>: ngtop asks for it on the terminal of your PC. It is not possible when the input is not a terminal (a pipe, a script): "
+        "in that case use a user with <code>NOPASSWD</code>."]) + \
+    p("After a drop of the network ngtop reconnects with the password it kept in memory (" + rif("Acting as root: --sudo") + "). If you quit and start again, it asks again.")
 
 CHAPTER = ("Troubleshooting", [
     ("The terminal is too small", S_SMALL),
@@ -135,5 +150,6 @@ CHAPTER = ("Troubleshooting", [
     ("Remote: offline after a drop", S_RRECONNECT),
     ("Remote: the journal is empty", S_RJOURNAL),
     ("Remote: data arrive slowly", S_RSLOW),
-    ("Remote: actions do nothing", S_RNO),
+    ("Remote: actions fail", S_RNO),
+    ("Remote: sudo does not work", S_RSUDO),
 ])

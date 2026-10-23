@@ -16,7 +16,7 @@ use ratatui::style::Color;
 
 use crate::collect::process::Process;
 use crate::collect::services::dbus::DbusBackend;
-use crate::collect::services::remote::{REMOTE_ACTION_MSG, REMOTE_USER_MSG};
+use crate::collect::services::remote::REMOTE_USER_MSG;
 use crate::collect::services::worker::{Client, Request, Response};
 use crate::collect::services::{
     Action, ActionError, Backend, BootTimestamps, DENIED_TEXT, JournalLine, Scope, SessionInfo,
@@ -199,8 +199,10 @@ pub struct Servizi {
     last_sessions: Option<Instant>,
     boot_asked: bool,
     blame_asked: bool,
-    /// Macchina remota: azioni disattivate e niente controllo di systemd sul disco locale.
+    /// Macchina remota: azioni di sistema via systemctl, niente controllo di systemd sul disco locale.
     remote: Option<RemoteCtx>,
+    /// Macchina remota per le finestre di conferma: (destinazione, esegue come root).
+    pub machine: Option<(String, bool)>,
 }
 
 impl Default for Servizi {
@@ -265,6 +267,7 @@ impl Servizi {
             boot_asked: false,
             blame_asked: false,
             remote: None,
+            machine: None,
         }
     }
 
@@ -497,9 +500,6 @@ impl Servizi {
                 self.set_status(REMOTE_USER_MSG.into(), false);
             }
             KeyCode::Char('u') => self.switch_scope(),
-            KeyCode::Char('s' | 't' | 'r' | 'e') if self.remote.is_some() => {
-                self.set_status(REMOTE_ACTION_MSG.into(), false);
-            }
             KeyCode::Char('s') => self.ask_confirm(Action::Start),
             KeyCode::Char('t') => self.ask_confirm(Action::Stop),
             KeyCode::Char('r') => self.ask_confirm(Action::Restart),

@@ -49,6 +49,26 @@ Scrivo anche il contratto con i nomi concordati. Poi partono in parallelo, ognun
 Alla fine: revisore (diff completo) → correzioni agli stessi programmatori → revisore → rilascio **1.6.0**: sito, manuali,
 release GitHub, repository sincronizzati.
 
+## Hardening della sicurezza (dopo i 5 programmatori, prima del rilascio)
+1. **Revisione di sicurezza** dedicata, fatta dal revisore (Opus). Guarda solo il diff delle azioni e di `--sudo`, con
+   gli occhi di un attaccante.
+   - **Server ostile:** risposte false, pid o ore di avvio truccati, testi con caratteri di controllo.
+   - **Iniezioni:** nomi di unità, numeri, segnali.
+   - **Password:** dove passa, dove resta, che cosa succede con una password sbagliata o con un sudo lento.
+   - **Disconnessione:** una caduta a metà azione.
+   - **Agire sulla macchina sbagliata:** non deve mai succedere che un'azione colpisca il PC locale invece del server,
+     né il contrario.
+2. **Prove di attacco automatiche**, che diventano test permanenti:
+   - script del server sostituito da uno "ostile", che manda risposte malformate, bugiarde o enormi;
+   - fuzz degli ingressi: pid, ore di avvio, nomi di unità, testi di errore;
+   - pid riusato sotto carico, con migliaia di processi brevi;
+   - password sbagliata o lenta e `requiretty`, controllando che nei log del server non compaia nessuna riga dello
+     script;
+   - la password non deve comparire nella memoria scritta su disco, né negli argomenti visibili con `ps`, né nei
+     messaggi;
+   - caduta della connessione durante un segnale o un'azione su un servizio.
+3. I problemi trovati tornano agli stessi programmatori, poi si rifà la revisione. Si rilascia solo con APPROVATO.
+
 ## Rischi
 - **Il controllo dell'ora di avvio non è perfetto in remoto.** In locale ngtop "aggancia" il processo (pidfd) e la
   finestra di rischio è zero. Sul server lo script controlla e poi esegue `kill` subito dopo, quindi resta una finestra

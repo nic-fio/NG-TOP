@@ -192,7 +192,7 @@ network, disks and services, in one program. Working rules:
 ### D18. Read-only first
 
 - **Decision.** In 1.5 signals, nice and service actions are disabled on remote
-  machines; they are planned for a later phase.
+  machines; they come in a later phase (D21–D25, version 1.6).
 - **Reason.** The `pidfd` protection of D7 does not exist across ssh.
 
 ### D19. Defensive protocol
@@ -208,6 +208,54 @@ network, disks and services, in one program. Working rules:
 ### D20. Version 1.5
 
 - **Decision.** The owner chose 1.5 for the release that adds remote machines.
+
+### D21. Actions on remote machines (1.6)
+
+- **Context.** After 1.5 the owner wanted to do on a server what one does
+  locally: signals, nice, and service actions.
+- **Decision.** Signals and nice go through one interface (`ProcActions`) with
+  a local and a remote implementation; service actions use `systemctl` through
+  the same ssh connection. The confirmations and protections stay the ones of
+  the local case.
+- **Consequences.** The remote machine never receives an action built from a
+  bare PID (D22). User units stay unavailable remotely: ssh does not reach that
+  bus.
+
+### D22. Start-time check instead of pidfd
+
+- **Context.** `pidfd` (D7) pins a process, but it does not exist across ssh and
+  not on every system (busybox).
+- **Decision.** ngtop sends the start time it knows together with the PID. The
+  script on the server reads the start time again and runs `kill` (or `renice`)
+  only if the two are equal, in one command.
+- **Consequences.** A PID reused by another program is never hit. A window of a
+  few milliseconds between the check and the `kill` remains; it is stated in the
+  manuals, and it needs thousands of new processes in that instant to matter.
+
+### D23. `--sudo` and the marker
+
+- **Decision.** `--sudo` starts the script on the server under `sudo`: first
+  without a password (`sudo -n`), then, if needed, with the password asked on the
+  terminal before the interface opens. After sending the password ngtop waits
+  for a marker printed by the shell that sudo started, and only then sends the
+  script.
+- **Reason.** If the password were wrong, sudo would read the following lines as
+  password attempts, and pieces of the script would end up in the server's logs.
+  Without the marker nothing of the script is sent.
+
+### D24. The sudo password stays in memory
+
+- **Decision.** The password lives only in the memory of ngtop, so that a
+  reconnection after a network drop needs no new question. It is cleared when
+  ngtop exits and is never written to disk, to the configuration, to logs or to
+  a command line.
+- **Alternative rejected.** Not keeping it and asking to restart ngtop after
+  every drop: safer on paper, but a poor experience on unstable links.
+
+### D25. Version 1.6.0
+
+- **Decision.** 1.6.0: a new function that does not change how the program is
+  used.
 
 ---
 
@@ -226,6 +274,7 @@ an independent review before the next began.
 | **6. Website** | Ten proposals, direction "Daylight" chosen; site published (D14). |
 | **7. English and manuals** | Interface moved to English, licence set (D12), user and technical manuals written, with this document. |
 | **8. Remote machines (1.5.0)** | Evening of 2026-10-23. A plan for remote monitoring; the `Source` interface written by the coordinator; five programmers in parallel on collectors, ssh transport, remote services, command line and interface; end-to-end tests on containers (Alpine, Debian, Debian with systemd) and on two real hosts. An independent review found four security issues (forged fd links through file names with newlines, shifted command lines, panics and unbounded memory with a hostile server); all were fixed and verified again (D15–D20). |
+| **9. Actions on remote machines (1.6.0)** | Phase 2 of the remote work. A common interface for process actions written by the coordinator; five programmers in parallel on transport, services, interface and command line, end-to-end tests, and manuals and site; tests in containers with sudo (with and without password) and with systemd (D21–D25). |
 
 ---
 
@@ -235,5 +284,5 @@ an independent review before the next began.
 |---|---|
 | NVIDIA | Detected only (D5). Full support planned. |
 | Architectures | x86_64 only. |
-| Remote machines | Read-only (D18); signals, nice and service actions on remote hosts are a later phase. |
+| Remote machines | Signals, nice and service actions work (D21); user units stay unavailable, and the start-time check has a window of a few milliseconds (D22). |
 | Real hardware | Measured on an Intel N100 machine and tested in containers on eight distributions; other hardware, especially other GPUs, is unverified. |

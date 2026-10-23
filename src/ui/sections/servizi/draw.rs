@@ -111,7 +111,7 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &mut App, sys: &System) {
         draw_detail(buf, detail, s, &tz, now);
     }
     if let Some(c) = &s.confirm {
-        let lines = vec![
+        let mut lines = vec![
             format!("Unit: {}", c.unit),
             format!(
                 "Scope: {}",
@@ -121,8 +121,16 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &mut App, sys: &System) {
                     "user"
                 }
             ),
-            "If needed, polkit will ask for the password.".to_string(),
         ];
+        match &s.machine {
+            Some((target, root)) => {
+                lines.push(format!("On: {target}"));
+                if !root {
+                    lines.push("Needs root on the server (start ngtop with --sudo).".to_string());
+                }
+            }
+            None => lines.push("If needed, polkit will ask for the password.".to_string()),
+        }
         Dialog {
             title: c.action.verb(),
             lines: &lines,

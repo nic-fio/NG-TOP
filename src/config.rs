@@ -35,6 +35,8 @@ pub struct Config {
     pub left_width: u16,
     /// Macchina remota da monitorare via ssh (come TARGET); `None` = questa macchina.
     pub host: Option<String>,
+    /// Con `host`: sul server i comandi girano con sudo (azioni da root).
+    pub sudo: bool,
 }
 
 impl Default for Config {
@@ -47,6 +49,7 @@ impl Default for Config {
             temperature: TempUnit::Celsius,
             left_width: 40,
             host: None,
+            sudo: false,
         }
     }
 }
@@ -205,6 +208,10 @@ pub fn parse_full(text: &str) -> Result<(Config, Vec<String>), String> {
                 Value::Str(s) => cfg.host = Some(check_target(&s).map_err(at)?),
                 _ => return Err(at("'host' must be a quoted string".into())),
             },
+            "sudo" => match val {
+                Value::Bool(b) => cfg.sudo = b,
+                _ => return Err(at("'sudo' must be true or false".into())),
+            },
             other => warnings.push(at(format!("unknown key '{other}', ignored"))),
         }
     }
@@ -228,7 +235,9 @@ pub fn to_toml(c: &Config) -> String {
          # width of the left column of the Overview, in % (20–70)\n\
          left_width = {}\n\
          # remote machine to monitor over ssh (like the TARGET argument)\n\
-         {}\n",
+         {}\n\
+         # run the remote commands with sudo (only with host; same as --sudo)\n\
+         sudo = {}\n",
         c.interval_ms,
         c.section,
         c.mouse,
@@ -246,6 +255,7 @@ pub fn to_toml(c: &Config) -> String {
             Some(h) => format!("host = \"{h}\""),
             None => "# host = \"user@server\"".to_string(),
         },
+        c.sudo,
     )
 }
 
@@ -383,6 +393,8 @@ pub struct Cli {
     pub host: Option<String>,
     /// `--local`: ignora la chiave `host` del file.
     pub local: bool,
+    /// `--sudo`: sul server i comandi girano con sudo (richiede un TARGET).
+    pub sudo: bool,
 }
 
 pub const USAGE: &str = "\
@@ -401,6 +413,7 @@ Options:
       --config FILE      use FILE instead of ~/.config/ngtop/config.toml
       --host TARGET      monitor a remote machine (same as giving TARGET)
       --local            monitor this machine even if the configuration has 'host'
+      --sudo             run the commands on the server with sudo (needs a TARGET)
 
 Remote machines:
   TARGET is host, user@host or ssh://user@host:port.
@@ -409,7 +422,10 @@ Remote machines:
     ngtop --dump alex@server     text summary of server
   ngtop uses your ssh command and configuration (keys, ~/.ssh/config, ProxyJump);
   nothing is installed on the remote machine. Set NGTOP_SSH to use another ssh command.
-  In this version signals, nice and service actions are not available remotely.
+  Signals, nice and system service actions also work remotely; they need the right
+  permissions on the server. --sudo runs the remote commands with sudo (asks for the
+  password before the interface starts, if the server requires one), so you can act as root.
+  User-service actions (u) are not available remotely.
 
 Diagnostics:
   --dump [TARGET]        print a text summary and exit (no interface)
@@ -437,7 +453,7 @@ pub fn parse_args(args: &[String]) -> Result<Cli, String> {
         if inline.is_some()
             && matches!(
                 name,
-                "--help" | "--version" | "--no-mouse" | "--256" | "--local"
+                "--help" | "--version" | "--no-mouse" | "--256" | "--local" | "--sudo"
             )
         {
             return Err(format!("option {name} takes no value"));
@@ -469,6 +485,7 @@ pub fn parse_args(args: &[String]) -> Result<Cli, String> {
             }
             "--config" => cli.config = Some(PathBuf::from(value("file")?)),
             "--local" => cli.local = true,
+            "--sudo" => cli.sudo = true,
             "--host" => {
                 let v = value("TARGET")?;
                 if cli.host.is_some() {
@@ -487,6 +504,9 @@ pub fn parse_args(args: &[String]) -> Result<Cli, String> {
     }
     if cli.local && cli.host.is_some() {
         return Err("--local cannot be used together with a TARGET".into());
+    }
+    if cli.local && cli.sudo {
+        return Err("--sudo needs a TARGET (it cannot be used with --local)".into());
     }
     Ok(cli)
 }
@@ -552,6 +572,9 @@ pub fn merge(mut cfg: Config, cli: &Cli) -> Config {
         cfg.host = None;
     } else if let Some(h) = &cli.host {
         cfg.host = Some(h.clone());
+    }
+    if cli.sudo {
+        cfg.sudo = true;
     }
     cfg
 }
@@ -782,6 +805,9 @@ mod tests {
         let c = parse_args(&args(&["--host=alex@srv"])).unwrap();
         assert_eq!(c.host.as_deref(), Some("alex@srv"));
         assert!(parse_args(&args(&["--local"])).unwrap().local);
+        assert!(parse_args(&args(&["--sudo", "srv"])).unwrap().sudo);
+        assert!(parse_args(&args(&["--local", "--sudo"])).is_err());
+        assert!(parse_args(&args(&["--sudo=1", "srv"])).is_err());
         // errori
         for bad in [
             &["a", "b"][..],
@@ -840,6 +866,17 @@ mod tests {
         let cli = parse_args(&args(&["--local"])).unwrap();
         assert_eq!(merge(file.clone(), &cli).host, None);
         assert_eq!(merge(file.clone(), &Cli::default()), file);
+        // sudo: chiave del file e opzione
+        assert!(parse("sudo = true\n").unwrap().sudo);
+        assert!(parse("sudo = 1").unwrap_err().contains("'sudo'"));
+        let s = Config {
+            sudo: true,
+            ..file.clone()
+        };
+        assert_eq!(parse(&to_toml(&s)).unwrap(), s);
+        assert!(!parse(&to_toml(&Config::default())).unwrap().sudo);
+        let cli = parse_args(&args(&["--sudo", "srv"])).unwrap();
+        assert!(merge(file.clone(), &cli).sudo);
         // salvare con W non perde la riga host
         let old = "host = \"alex@server\"\ninterval = 1000\n";
         let t = update_text(

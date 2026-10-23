@@ -133,7 +133,7 @@ footer a:hover{color:var(--ink)}
    <a class="pill" href="download/ngtop" download>Download</a>
   </nav>
   <div class="c" id="top">
-   <span class="badge">Version 1.5.0 · now with remote machines</span>
+   <span class="badge">Version 1.6.0 · now with actions on remote machines</span>
    <h1>Your Linux machine, at a glance.</h1>
    <p class="sub">ngtop is a system monitor for the terminal: btop + nvtop + the Windows Task Manager, in one tool. One static binary, nothing to install.</p>
    <div class="btns"><a class="pill" href="download/ngtop" download><svg class="i"><use href="#i-dl"/></svg>Download ngtop</a><a class="pill ghost" href="User%20Manual.html">Read the manual</a></div>
@@ -181,14 +181,17 @@ footer a:hover{color:var(--ink)}
 
 <section class="feat" id="remote">
  <div class="wrap">
-  <span class="eyebrow">New in 1.5</span>
-  <h2>Watch another machine over ssh</h2>
-  <p class="lead">Give ngtop a host and it shows that Linux machine exactly like the local one: same five sections, same keys. Nothing is installed on the server.</p>
-  <div style="text-align:center"><div class="cmd" style="background:#0f1730;color:#e6ecff"><i>$</i> ngtop alex@server<br><i>$</i> ngtop ssh://alex@server:2222</div></div>
+  <span class="eyebrow">New in 1.6</span>
+  <h2>Watch, and act on, another machine over ssh</h2>
+  <p class="lead">Give ngtop a host and it shows that Linux machine exactly like the local one: same five sections, same keys. Nothing is installed on the server. Since 1.6 you can also act on it: send signals, change the nice value, start and stop services.</p>
+  <div style="text-align:center"><div class="cmd" style="background:#0f1730;color:#e6ecff"><i>$</i> ngtop alex@server<br><i>$</i> ngtop ssh://alex@server:2222<br><i>$</i> ngtop --sudo alex@server</div></div>
   <div class="fgrid">
    <div class="card"><div class="ic"><svg class="i"><use href="#i-term"/></svg></div><h3>Nothing to install</h3><p>The server needs only an ssh server and a POSIX shell, even busybox. ngtop reads its /proc and /sys through one ssh session and leaves nothing behind.</p></div>
    <div class="card"><div class="ic"><svg class="i"><use href="#i-key"/></svg></div><h3>Your ssh, your keys</h3><p>ngtop runs the ssh command of your PC, so your keys, agent, ~/.ssh/config and jump hosts all work. The bar shows the host and the latency.</p></div>
-   <div class="card"><div class="ic"><svg class="i"><use href="#i-bolt"/></svg></div><h3>Light on both ends</h3><p>About 2–3 KB per refresh on the wire and under 1 % of CPU on the server, measured with a refresh every second. Read-only in 1.5: signals and service actions stay local.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-bolt"/></svg></div><h3>Light on both ends</h3><p>About 2–3 KB per refresh on the wire and under 1 % of CPU on the server, measured with a refresh every second. Every action is one more request on the same connection.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-shield"/></svg></div><h3>Actions that cannot hit the wrong process</h3><p>Signals and nice carry the start time of the process, and the server acts only if it still matches: a reused PID is never touched. PID 1 and ngtop's own session are protected, and the dialogs name the machine.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-lock"/></svg></div><h3>Everything as root, with --sudo</h3><p>With --sudo the server side runs under sudo: you see every process and service actions are allowed. The password is asked once, on your terminal, kept only in memory and never written to disk.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-srv"/></svg></div><h3>Services too</h3><p>Start, stop, restart, enable and disable system units on the server through systemctl. Without --sudo, ngtop says that root is needed instead of failing silently.</p></div>
   </div>
  </div>
 </section>
@@ -211,7 +214,7 @@ footer a:hover{color:var(--ink)}
  <div class="wrap">
   <span class="eyebrow">Documentation</span>
   <h2>Two manuals, and the reasons behind them</h2>
-  <p class="lead">Written for ngtop 1.5.0, with real screens of the program. One HTML page each: they work offline too.</p>
+  <p class="lead">Written for ngtop 1.6.0, with real screens of the program. One HTML page each: they work offline too.</p>
   <div class="fgrid">
    <a class="card" href="User%20Manual.html" style="color:inherit;text-decoration:none"><div class="ic"><svg class="i"><use href="#i-list"/></svg></div><h3>User Manual →</h3><p>Everything about using ngtop: the screen, the five sections, signals, services, configuration, permissions, troubleshooting and every key.</p></a>
    <a class="card" href="Technical%20Manual.html" style="color:inherit;text-decoration:none"><div class="ic"><svg class="i"><use href="#i-term"/></svg></div><h3>Technical Manual →</h3><p>How ngtop is built: architecture, where every number comes from, the interface, safety, performance, the static build, testing and extending it.</p></a>
@@ -227,7 +230,7 @@ footer a:hover{color:var(--ink)}
    <h2>Download. chmod. Run.</h2>
    <p class="lead">One file, nothing to install. Download it, make it executable, run it.</p>
    <div class="cmd"><i>$</i> curl -LO https://ngtop.nicfio.it/download/ngtop &amp;&amp; chmod +x ngtop &amp;&amp; ./ngtop</div><br>
-   <a class="pill" href="download/ngtop" download><svg class="i"><use href="#i-dl"/></svg>Download ngtop 1.5.0</a>
+   <a class="pill" href="download/ngtop" download><svg class="i"><use href="#i-dl"/></svg>Download ngtop 1.6.0</a>
    <div class="facts"><span>Linux x86_64</span><span>@SIZE@</span><span>SHA-256 <code class="sha">@SHA256@</code></span><span><a href="download/SHA256SUMS">Verify: SHA256SUMS</a></span><span>No dependencies</span><span>Config: ~/.config/ngtop/config.toml</span><span>ngtop --dump: text summary</span></div>
   </div>
   <p class="tested"><b>Tested on</b> Ubuntu 24.04 · Debian 12 · Debian 10 · Fedora 41 · Arch Linux · Alpine 3.20 · openSUSE Tumbleweed · CentOS 7</p>
@@ -239,7 +242,7 @@ footer a:hover{color:var(--ink)}
  <div class="wrap">
   <span class="logo"><svg><use href="#logo"/></svg>ngtop</span>
   <a href="#features">Features</a><a href="#screens">Screens</a><a href="#download">Get it</a><a href="User%20Manual.html">User manual</a><a href="Technical%20Manual.html">Technical manual</a><a href="decisions.html">Design decisions</a><a href="licence.html">Licence</a>
-  <span>ngtop 1.5.0 · October 2026 · by nic-fio</span>
+  <span>ngtop 1.6.0 · October 2026 · by nic-fio</span>
  </div>
 </footer>
 

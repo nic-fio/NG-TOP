@@ -206,9 +206,12 @@ struct StatusInfo {
     state: Option<RemoteState>,
     page_size: Option<u64>,
     clock_ticks: Option<u64>,
+    /// Lo script sul server gira come root; pid della sua sessione (antenati fino a PID 1 escluso).
+    root: bool,
+    self_pids: Vec<u32>,
 }
 
-struct Shared {
+pub(super) struct Shared {
     transport: Transport,
     target: String,
     sess: Mutex<Option<Session>>,
@@ -234,6 +237,7 @@ pub(super) fn open(
 ) -> io::Result<(Arc<RemoteSource>, Arc<RemoteRunner>)> {
     let sess = Session::start(&tr, true)?;
     let (page_size, clock_ticks) = (sess.page_size, sess.clock_ticks);
+    let (root, self_pids) = (sess.uid == Some(0), sess.self_pids.clone());
     let sh = Arc::new(Shared {
         transport: tr,
         target,
@@ -242,6 +246,8 @@ pub(super) fn open(
             state: Some(RemoteState::Connected),
             page_size: Some(page_size),
             clock_ticks: Some(clock_ticks),
+            root,
+            self_pids,
             ..Default::default()
         }),
         reconnecting: AtomicBool::new(false),
@@ -259,6 +265,11 @@ pub(super) fn open(
 }
 
 impl Shared {
+    /// Pid della sessione ngtop sul server (lo script e i suoi antenati).
+    pub(super) fn self_pids(&self) -> Vec<u32> {
+        lock(&self.status).self_pids.clone()
+    }
+
     fn connected(&self) -> bool {
         matches!(lock(&self.status).state, Some(RemoteState::Connected))
     }
@@ -273,7 +284,7 @@ impl Shared {
 
     /// Una richiesta sulla sessione (serializzata dal Mutex). Se fallisce la sessione si scarta e parte
     /// la riconnessione in sottofondo.
-    fn request(
+    pub(super) fn request(
         self: &Arc<Self>,
         lines: &[u8],
         timeout: Duration,
@@ -341,6 +352,8 @@ impl Shared {
                             let mut st = lock(&sh.status);
                             st.page_size = Some(s.page_size);
                             st.clock_ticks = Some(s.clock_ticks);
+                            st.root = s.uid == Some(0);
+                            st.self_pids = s.self_pids.clone();
                         }
                         *lock(&sh.sess) = Some(s);
                         let _ = sh.refresh_hostname();
@@ -355,6 +368,8 @@ impl Shared {
                             "Permission denied",
                             "Host key verification failed",
                             "HOST IDENTIFICATION HAS CHANGED",
+                            // sudo non cambia idea: insistere con una password sbagliata sarebbe solo rumore nei log
+                            "sudo: ",
                         ]
                         .iter()
                         .any(|m| msg.contains(m))
@@ -1290,7 +1305,7 @@ impl Source for RemoteSource {
             hostname: s.hostname.clone(),
             latency_ms: s.latency_ms,
             last_bytes: s.last_bytes,
-            root: false,
+            root: s.root,
             state: s.state.clone().unwrap_or(RemoteState::Connected),
         })
     }
@@ -1335,6 +1350,9 @@ impl CommandRunner for RemoteRunner {
 }
 
 impl RemoteSource {
+    pub(super) fn shared(&self) -> Arc<Shared> {
+        self.sh.clone()
+    }
     /// Solo per i test: termina il processo della sessione.
     #[doc(hidden)]
     pub fn kill_session_for_test(&self) {

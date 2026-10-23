@@ -3,8 +3,8 @@
 """User Manual, chapter 9 — monitoring a remote machine over ssh.
 Sources: README.md (Remote machines), src/config.rs (USAGE, parse_args, host key), src/main.rs (connect_remote),
 src/remote/ (mod.rs: NGTOP_SSH, target.rs: Target::parse, session.rs: ssh options, source.rs: reconnection),
-src/ui/view.rs (tab bar, status line, latency_color), src/ui/app.rs (adapt_interval, remote_blocked, REMOTE_NA),
-src/collect/services/remote.rs (REMOTE_ACTION_MSG, REMOTE_USER_MSG)."""
+src/ui/view.rs (tab bar, status line, latency_color), src/ui/app.rs (adapt_interval), src/source/actions.rs (ProcActions, error texts), src/remote/ (actions, --sudo),
+src/collect/services/remote.rs (RemoteBackend::action, REMOTE_USER_MSG)."""
 from build import c, code, key, note, p, rif, steps, table, term, tip, ui, ul, warn
 
 S_USE = p("ngtop can show <b>another machine</b> instead of the one you sit at. It uses the <code>ssh</code> command you already have, "
@@ -28,7 +28,7 @@ S_NEED = p("Remote monitoring asks very little of both machines.", lead=True) + 
         ["Your PC", "The <code>ssh</code> command, as you use it every day. ngtop uses your keys, your ssh agent, your <code>~/.ssh/config</code> "
          "(including <code>ProxyJump</code>) and your <code>known_hosts</code>."],
         ["The server", "An ssh server and a POSIX shell with <code>cat</code>. The server must run <b>Linux</b>, because ngtop reads the same files "
-         "as on the local machine. No ngtop, no agent, no extra package."],
+         "as on the local machine. No ngtop, no agent, no extra package. To act as root (" + rif("Acting as root: --sudo") + ") the user you log in as must be allowed to use <code>sudo</code>."],
     ], "«TAB» — What remote monitoring needs") + \
     note("<b>Nothing is installed and nothing is written on the server.</b> ngtop sends a small shell script through the ssh connection. "
          "It lives only in the memory of the remote shell and goes away when the connection ends. No file is created on the server's disk.",
@@ -54,6 +54,7 @@ S_BAR = p("On a remote machine the left side of the tab bar looks like the usual
          "you typed). The tab bar always carries this mark, so you never take a remote screen for your own."],
         [ui("23 ms"), "The <b>latency</b>: the time of one round trip to the server. <b>Green</b> below 50 ms, <b>yellow</b> below 200 ms, <b>red</b> above."],
         [ui("offline"), "In red, instead of the latency: the connection is down (see below)."],
+        [ui("root"), "Shown when the program on the server runs as root, for example with " + c("--sudo") + " (" + rif("Acting as root: --sudo") + ")."],
         ["The rest", "Uptime and load average are those <b>of the server</b>. The clock is the time of your PC, written in the time zone of the server."],
     ], "«TAB» — The tab bar of a remote session") + \
     p("The help window (" + key("F1") + ") says <code>Help — server</code> in its title.")
@@ -72,13 +73,57 @@ S_LOST = p("Networks fail. When the link to the server drops, ngtop does not qui
       "<code>connection failed: REASON — press q to quit</code>. Press " + key("q") + " to leave. In all other cases (network down, server off) ngtop "
       "keeps trying, with waits that grow up to ten seconds.")
 
-S_NOT = p("In this version a remote machine is for <b>looking</b>. The actions that change something on the server are not available. If you try, the "
-          "status line says so in red and nothing is sent.", lead=True) + \
-    table(["What you try", "What happens"], [
-        [key("F9") + " (signal), and in " + ui("Processes") + " " + key("k") + ", " + key("F7") + ", " + key("F8") + " (signal, nice)", ui("Not available on remote machines in this version")],
-        ["The keys " + key("s") + " " + key("t") + " " + key("r") + " " + key("e") + " of " + ui("Services") + " (start, stop, restart, enable, disable)", ui("Not available on remote machines in this version")],
-        ["The " + ui("user") + " units of " + ui("Services") + " (key " + key("u") + ")", ui("User units are not available on remote machines")],
-    ], "«TAB» — What does not work on a remote machine") + \
+S_ACT = p("Since version 1.6 a remote machine is not only for <b>looking</b>. The actions you know from the local machine work on the server too, with the "
+          "same keys and the same windows.", lead=True) + \
+    table(["What", "Keys", "Where it is explained"], [
+        ["Send a signal to a process, or to its whole subtree", key("F9") + " (in " + ui("Processes") + " also " + key("k") + ")", rif("Sending a signal")],
+        ["Change the nice value", key("F7") + ", " + key("F8"), rif("Changing the priority")],
+        ["Start, stop, restart, enable and disable a system service", key("s") + " " + key("t") + " " + key("r") + " " + key("e") + " in " + ui("Services"), rif("Starting and stopping")],
+    ], "«TAB» — Actions that work on a remote machine") + \
+    p("The confirmation windows <b>name the machine</b>, so you always know where the action goes, for example <code>Send SIGTERM to 1234 on alex@server?</code>. "
+      "The status line reports the result as in the local case, in green or in red.") + \
+    p("The actions run with the rights of the <b>user you log in as</b> on the server. A normal user can signal only their own processes, and can raise "
+      "the nice value of their own processes but not lower it. Services need more: without the right to manage them, ngtop says "
+      "<code>needs root: start ngtop with --sudo</code>. The way to get those rights is the option of the next section.") + \
+    warn("<b>Think before you act: the target is a real server.</b> Stopping a service or killing a process there can cut you off or stop other people's work. "
+         "Stopping <code>sshd</code> or the network service of a machine you reach only through ssh cannot be undone from ngtop.",
+         "It is not your PC.")
+
+S_SUDO = p("The option " + c("--sudo") + " makes the program on the server run <b>as root</b>, through the <code>sudo</code> of the server. "
+           "Then you see every process, with the open files and the I/O of other users too, and you can act on services.", lead=True) + \
+    term("""$ ngtop --sudo alex@server
+[sudo] password for alex@server:""") + \
+    p("It needs a target (with " + c("--sudo") + " alone, on this machine, ngtop reports an error). What happens when it starts:") + \
+    steps(["ngtop first tries <code>sudo</code> <b>without a password</b>. It works if the server allows it (<code>NOPASSWD</code> in the sudoers file), and then you are not asked anything.",
+           "Otherwise ngtop asks for the <b>sudo password</b> on the terminal, <b>before</b> the interface opens. What you type is not shown.",
+           "ngtop sends the password <b>once</b>, waits for <code>sudo</code> to confirm, and only then sends its small script.",
+           "If the password is wrong, ngtop exits with <code>sudo: wrong password</code> and the script is never sent."]) + \
+    p("You can write the same choice in the configuration file with " + c("sudo = true") + " (" + rif("Every setting") + "); it applies to " + c("--dump") + " too.") + \
+    note("<b>The password stays in the memory of ngtop</b> as long as ngtop is open, so that after a drop of the network it can reconnect by itself, as it does without "
+         "sudo (" + rif("Lost connection and reconnection") + "). It is never written to the disk, nor to the configuration file, nor to a log, and it is erased "
+         "when you quit.", "Where the password goes.") + \
+    p("If the server does not allow it, ngtop tells you why instead of failing in silence, for example when <code>sudo</code> insists on a terminal "
+      "(<code>requiretty</code>) or when your user may not use it. In that case use a user with <code>NOPASSWD</code>, change the rule, or log in as root "
+      "(" + rif("Remote: sudo does not work") + ").")
+
+S_PROTECT = p("The protections of the local case (" + rif("What ngtop protects you from") + ") are there on the remote machine too, and one more is added.", lead=True) + \
+    table(["Protection", "How it works remotely"], [
+        ["The right process", "Together with the signal or the nice value, ngtop sends the start time of the process that you selected. The server reads that time again and acts "
+         "<b>only if it is the same</b>. If the PID has been given to another program, nothing is done and the status line says so."],
+        ["PID 1 and ngtop's own session", "PID 1 is never touched, and neither is the script of ngtop on the server nor the " + c("sudo") + "/" + c("sshd") + " session that carries it: signalling them would cut you off."],
+        ["Confirmations", "The same windows as the local case (the second " + key("Enter") + " for big subtrees), with the name of the machine."],
+    ], "«TAB» — Protections on a remote machine") + \
+    note("<b>A window of a few milliseconds remains.</b> On your PC ngtop pins the process (with a <code>pidfd</code>) and the risk is zero. On the server that is not "
+         "possible: the check and the signal are two steps of the same command, one right after the other. For the PID to be reused exactly between them, thousands of "
+         "new processes would have to start in that instant. It is a tiny risk, not zero, and it is the reason why you should still look at the name on the confirmation window.",
+         "Honest limit.")
+
+S_NOT = p("Not everything is possible on a remote machine.", lead=True) + \
+    table(["What", "Why"], [
+        ["The " + ui("user") + " units of " + ui("Services") + " (key " + key("u") + ")", "ssh does not reach the session bus of the user. The line says " + ui("User units are not available on remote machines") + "."],
+        ["A pinned handle on the process", "There is no <code>pidfd</code> across ssh: the start-time check above is used instead."],
+        ["Lowering the nice value without root", "As on your PC: <code>root is needed to lower the nice value</code>. Use " + c("--sudo") + "."],
+    ], "«TAB» — What stays unavailable on a remote machine") + \
     p("Everything else is available: all five sections, the details of a process, the filter, the sorting, the connections, the journal.")
 
 S_SERVICES = p("The " + ui("Services") + " section works on a remote machine too, but it does not use D-Bus: it runs the commands " +
@@ -87,7 +132,8 @@ S_SERVICES = p("The " + ui("Services") + " section works on a remote machine too
     ul(["The list, the details, the boot time and the sessions look as in the local case (" + rif("The Services screen") + ").",
         "The <b>journal</b> is read with the rights of the <b>user you log in as</b>. If that user is not in the group <code>systemd-journal</code>, "
         "the panel is empty or says <code>The journal of this unit needs more permissions (run ngtop as root, or add the user to the systemd-journal group)</code> (" + rif("The journal") + "). Log in as a user who can read it, or as root.",
-        "Starting, stopping and enabling are not available (see above), and neither are the units of the user."])
+        "Starting, stopping, restarting, enabling and disabling the <b>system</b> units work as in " + rif("Actions on a remote machine") + ", through " + c("systemctl") + " on the server. "
+        "There is no password question on the server: without the right to manage services ngtop says <code>needs root: start ngtop with --sudo</code>. The units of the user are not available."])
 
 S_SLOW = p("On a slow link a full update can take longer than the refresh interval. ngtop does not pile up requests: if three updates in a row are "
            "too slow, it <b>widens the interval by one step</b> (250, 500, 1000, 2000, 5000 ms) and tells you:", lead=True) + \
@@ -123,7 +169,9 @@ $ NGTOP_SSH="ssh -i ~/.ssh/monitor_key" ngtop server""") + \
 S_FILE = p("To always watch the same server, put it in the configuration file:", lead=True) + \
     code('host = "alex@server"', "toml", "config.toml") + \
     p("Then " + c("ngtop") + " alone shows that server, and " + c("ngtop --local") + " shows your own machine. A target on the command line "
-      "replaces the one in the file. Pressing " + key("W") + " saves only the interval and the section: it leaves the " + c("host") + " line as it is.")
+      "replaces the one in the file. Pressing " + key("W") + " saves only the interval and the section: it leaves the " + c("host") + " line as it is.") + \
+    code('host = "alex@server"\nsudo = true', "toml", "config.toml") + \
+    p("With " + c("sudo = true") + " every remote session starts as root (" + rif("Acting as root: --sudo") + "). The password is never saved in the file: it is asked each time, if the server needs it.")
 
 CHAPTER = ("Remote machines", [
     ("Monitoring another machine", S_USE),
@@ -131,7 +179,10 @@ CHAPTER = ("Remote machines", [
     ("Connecting", S_CONNECT),
     ("The tab bar of a remote session", S_BAR),
     ("Lost connection and reconnection", S_LOST),
-    ("What does not work remotely", S_NOT),
+    ("Actions on a remote machine", S_ACT),
+    ("Acting as root: --sudo", S_SUDO),
+    ("Protections on a remote machine", S_PROTECT),
+    ("What stays unavailable remotely", S_NOT),
     ("Services on a remote machine", S_SERVICES),
     ("Slow networks", S_SLOW),
     ("How much it costs", S_COST),

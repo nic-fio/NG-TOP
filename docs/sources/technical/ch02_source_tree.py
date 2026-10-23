@@ -61,7 +61,7 @@ GROUPS = [
         ("src/collect/services/dbus.rs", "The real backend: D-Bus through " + c("zbus") + ", subprocesses with a time limit"),
         ("src/collect/services/worker.rs", "The services thread and its request / response channels"),
         ("src/collect/services/cgroup.rs", "Memory and CPU% of a unit, read straight from its cgroup"),
-        ("src/collect/services/remote.rs", "The remote backend: systemd through commands, no D-Bus, read-only"),
+        ("src/collect/services/remote.rs", "The remote backend: systemd through commands, no D-Bus; service actions with systemctl"),
         ("src/collect/services/fake.rs", "A fake backend with demo data, for tests and screenshots"),
     ]),
     ("Interface: src/ui/", [

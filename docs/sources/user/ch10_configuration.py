@@ -56,6 +56,7 @@ S_KEYS = p("These are all the settings. A missing line means the default.", lead
         [c("temperature"), c('"C"'), c('"C"') + " or " + c('"F"'), "Degrees Celsius or Fahrenheit, for the CPU and the GPU. Only in the file."],
         [c("left_width"), c("40"), "20–70", "Width of the left column of the Overview, in percent. Only in the file (" + rif("Changing the width of the left column") + ")."],
         [c("host"), "not set", "a quoted target", "A remote machine to monitor over ssh, written as in " + rif("Monitoring another machine") + ": " + c('host = "alex@server"') + ". Same as giving the target on the command line. " + c("--local") + " ignores it for one run."],
+        [c("sudo"), c("false"), c("true") + " or " + c("false"), "With a remote machine, run the program on the server as root, as with " + c("--sudo") + " (" + rif("Acting as root: --sudo") + "). The password is never saved in the file."],
     ], "«TAB» — The settings of the configuration file") + \
     note("Settings that are not here are ignored with a warning (see " + rif("Mistakes in the file") + ").")
 
