@@ -14,7 +14,7 @@ import html, re, sys
 NAME = "ngtop"
 SITE = "https://ngtop.nicfio.it"
 MAIL = "ngtop@nicfio.it"
-REPO = ""  # nessun repository pubblico per ora
+REPO = "https://github.com/nic-fio/NG-TOP"
 CURRENT = "0.1.0"
 # (versions, licence, file published in licences/)
 EARLIER = []
