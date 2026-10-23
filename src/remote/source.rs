@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, Weak};
 use std::time::Duration;
 
-use super::session::{Rec, Session, Transport, rc_error, sh_quote};
+use super::session::{Rec, Session, Transport, clean, rc_error, sh_quote};
 use crate::source::{CommandOutput, CommandRunner, FsStat, RemoteState, RemoteStatus, Source};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -208,6 +208,9 @@ struct StatusInfo {
     clock_ticks: Option<u64>,
     /// Lo script sul server gira come root; pid della sua sessione (antenati fino a PID 1 escluso).
     root: bool,
+    uid: Option<u32>,
+    /// Aumenta a ogni sessione avviata con successo.
+    generation: u64,
     self_pids: Vec<u32>,
 }
 
@@ -237,7 +240,7 @@ pub(super) fn open(
 ) -> io::Result<(Arc<RemoteSource>, Arc<RemoteRunner>)> {
     let sess = Session::start(&tr, true)?;
     let (page_size, clock_ticks) = (sess.page_size, sess.clock_ticks);
-    let (root, self_pids) = (sess.uid == Some(0), sess.self_pids.clone());
+    let (root, uid, self_pids) = (sess.uid == Some(0), sess.uid, sess.self_pids.clone());
     let sh = Arc::new(Shared {
         transport: tr,
         target,
@@ -247,6 +250,8 @@ pub(super) fn open(
             page_size: Some(page_size),
             clock_ticks: Some(clock_ticks),
             root,
+            uid,
+            generation: 1,
             self_pids,
             ..Default::default()
         }),
@@ -336,7 +341,7 @@ impl Shared {
     }
 
     fn lost(self: &Arc<Self>, msg: String) {
-        lock(&self.status).state = Some(RemoteState::Reconnecting(msg));
+        lock(&self.status).state = Some(RemoteState::Reconnecting(clean(&msg)));
         if self.reconnecting.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -353,6 +358,8 @@ impl Shared {
                             st.page_size = Some(s.page_size);
                             st.clock_ticks = Some(s.clock_ticks);
                             st.root = s.uid == Some(0);
+                            st.uid = s.uid;
+                            st.generation += 1;
                             st.self_pids = s.self_pids.clone();
                         }
                         *lock(&sh.sess) = Some(s);
@@ -374,10 +381,10 @@ impl Shared {
                         .iter()
                         .any(|m| msg.contains(m))
                         {
-                            lock(&sh.status).state = Some(RemoteState::Failed(msg));
+                            lock(&sh.status).state = Some(RemoteState::Failed(clean(&msg)));
                             return;
                         }
-                        lock(&sh.status).state = Some(RemoteState::Reconnecting(msg));
+                        lock(&sh.status).state = Some(RemoteState::Reconnecting(clean(&msg)));
                         wait = (wait * 2).min(Duration::from_secs(10));
                     }
                 }
@@ -392,7 +399,7 @@ impl Shared {
         req.push(b'\n');
         let (recs, _) = self.request(&req, REQUEST_TIMEOUT, None)?;
         if let Some(r) = recs.first().filter(|r| r.rc == 0) {
-            lock(&self.status).hostname = Some(String::from_utf8_lossy(&r.body).trim().to_string());
+            lock(&self.status).hostname = Some(clean(String::from_utf8_lossy(&r.body).trim()));
         }
         Ok(())
     }
@@ -1306,6 +1313,8 @@ impl Source for RemoteSource {
             latency_ms: s.latency_ms,
             last_bytes: s.last_bytes,
             root: s.root,
+            generation: s.generation,
+            uid: s.uid,
             state: s.state.clone().unwrap_or(RemoteState::Connected),
         })
     }

@@ -145,6 +145,8 @@ pub struct Confirm {
     pub action: Action,
     /// 0 = Annulla, 1 = Conferma.
     pub button: usize,
+    /// Connessione remota quando è stata chiesta la conferma.
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -203,6 +205,8 @@ pub struct Servizi {
     remote: Option<RemoteCtx>,
     /// Macchina remota per le finestre di conferma: (destinazione, esegue come root).
     pub machine: Option<(String, bool)>,
+    /// Numero della connessione remota corrente (aggiornato dall'app).
+    pub generation: u64,
 }
 
 impl Default for Servizi {
@@ -268,6 +272,7 @@ impl Servizi {
             blame_asked: false,
             remote: None,
             machine: None,
+            generation: 0,
         }
     }
 
@@ -437,6 +442,7 @@ impl Servizi {
                 unit: u.info.name.clone(),
                 action,
                 button: 0,
+                generation: self.generation,
             });
         }
     }
@@ -451,7 +457,12 @@ impl Servizi {
                 KeyCode::Enter => {
                     let c = c.clone();
                     self.confirm = None;
-                    if c.button == 1 {
+                    if c.button == 1 && self.remote.is_some() && c.generation != self.generation {
+                        self.set_status(
+                            "the connection changed since the confirmation: nothing done".into(),
+                            false,
+                        );
+                    } else if c.button == 1 {
                         self.set_status(format!("{} {}…", c.action.verb(), c.unit), true);
                         self.action_pending = true;
                         self.send(Request::Action(self.scope, c.unit, c.action));

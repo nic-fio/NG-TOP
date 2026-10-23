@@ -266,11 +266,11 @@ ng_int() {
   case $1 in ''|*[!0-9]*) return 1 ;; esac
   [ ${#1} -le "$2" ]
 }
-# ng_pos VALORE: intero valido e diverso da zero (kill 0 colpirebbe un gruppo di processi)
+# ng_pos VALORE: pid valido: 1..4194304 (pid_max di Linux al massimo 2^22); 0 no, kill 0 colpirebbe un gruppo
 ng_pos() {
-  ng_int "$1" 10 || return 1
-  case $1 in *[!0]*) return 0 ;; esac
-  return 1
+  ng_int "$1" 7 || return 1
+  case $1 in *[!0]*) ;; *) return 1 ;; esac
+  [ "$1" -le 4194304 ]
 }
 # ng_stat PID: legge /proc/PID/stat; imposta NGS_PPID, NGS_NICE, NGS_START (campi 4, 19, 22). Il nome (campo 2)
 # puo' contenere spazi, ")" e newline: si taglia fino all'ULTIMO ") ". Ritorna 1 se il processo non c'e'.
@@ -291,7 +291,7 @@ ng_stat() {
   NGS_NICE=$1
   shift 3
   NGS_START=$1
-  ng_int "$NGS_START" 20 && ng_int "$NGS_PPID" 10
+  ng_int "$NGS_START" 20 && ng_int "$NGS_PPID" 7
 }
 # j PID...: avvio (starttime) di ogni pid, una riga ciascuno ("-" = non esiste)
 j() {

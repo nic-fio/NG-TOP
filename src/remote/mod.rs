@@ -48,9 +48,9 @@ fn ssh_command() -> Vec<String> {
 /// Apre la sessione. Da chiamare PRIMA della TUI: ssh può chiedere password o conferma della host key
 /// sul terminale. `NGTOP_SSH=local-sh` usa invece un `sh` locale (prove senza rete).
 ///
-/// Con `o.sudo`: prima `sudo -n`; se serve la password la chiede su /dev/tty (senza eco, prompt
-/// `[sudo] password for utente@host: `), la manda una sola volta e la tiene in memoria per le
-/// riconnessioni (azzerata alla chiusura). Errori: `sudo: wrong password`, `sudo: a terminal is required
+/// Con `o.sudo`, su una sola connessione: se sudo chiede la password (lo si riconosce da un prompt casuale)
+/// la chiede su /dev/tty (senza eco, `[sudo] password for utente@host: `), la manda una sola volta e la
+/// tiene in memoria per le riconnessioni (azzerata alla chiusura). Senza prompt (NOPASSWD) non ne manda. Errori: `sudo: wrong password`, `sudo: a terminal is required
 /// (requiretty)`, `sudo: not allowed for this user`.
 pub fn connect(
     t: &Target,
@@ -60,22 +60,20 @@ pub fn connect(
     if cmd.len() == 1 && cmd[0] == "local-sh" {
         return source::open(Transport::LocalSh, t.display());
     }
-    let ssh = |sudo: SudoMode| Transport::Ssh {
-        cmd: cmd.clone(),
-        target: t.clone(),
-        compress: o.compress,
-        sudo,
+    let sudo = if o.sudo {
+        SudoMode::new()
+    } else {
+        SudoMode::Off
     };
-    if !o.sudo {
-        return source::open(ssh(SudoMode::Off), t.display());
-    }
-    match source::open(ssh(SudoMode::NoPasswd), t.display()) {
-        Err(e) if sudo::needs_password(&e) => {
-            let pw = ask_password(t)?;
-            source::open(ssh(SudoMode::Password(pw)), t.display())
-        }
-        r => r,
-    }
+    source::open(
+        Transport::Ssh {
+            cmd,
+            target: t.clone(),
+            compress: o.compress,
+            sudo,
+        },
+        t.display(),
+    )
 }
 
 /// Azioni sui processi della macchina raggiunta da `src`: segnali e nice con la verifica dell'avvio fatta

@@ -204,6 +204,11 @@ pub struct RemoteStatus {
     pub last_bytes: u64,
     /// `true` se lo script sul server gira come root (`--sudo` o utente root).
     pub root: bool,
+    /// Numero della sessione sul server: cambia a ogni (ri)connessione. Un'azione preparata in una
+    /// sessione non va inviata in un'altra (pid protetti diversi, server forse riavviato).
+    pub generation: u64,
+    /// Uid dello script sul server (`id -u`), se noto.
+    pub uid: Option<u32>,
     pub state: RemoteState,
 }
 

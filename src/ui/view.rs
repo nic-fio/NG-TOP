@@ -140,7 +140,11 @@ fn first_line(s: &str) -> &str {
 /// Nome mostrato per la macchina remota: il suo hostname se noto, altrimenti la destinazione.
 fn remote_name(st: &RemoteStatus) -> String {
     match st.hostname.as_deref().filter(|h| !h.is_empty()) {
-        Some(h) => h.to_string(),
+        // il nome viene dal server: niente caratteri di controllo nel terminale
+        Some(h) => h
+            .chars()
+            .map(|c| if c.is_control() { '?' } else { c })
+            .collect(),
         None => st.target.clone(),
     }
 }
@@ -259,6 +263,8 @@ mod tests {
             latency_ms: latency,
             last_bytes: 0,
             root: false,
+            generation: 0,
+            uid: None,
             state,
         }
     }

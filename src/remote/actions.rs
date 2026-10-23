@@ -18,8 +18,10 @@ use crate::source::ProcActions;
 use crate::source::actions::{ERR_ACCESS, ERR_GONE, ERR_PERM, ERR_REUSED};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
-/// Pid massimo ammesso (pid_max di Linux è al più 2^22).
-const PID_MAX: u32 = i32::MAX as u32;
+/// Pid massimo ammesso: pid_max di Linux è al più 2^22 = 4194304 (7 cifre), come nello script.
+const PID_MAX: u32 = 4_194_304;
+/// Timeout o caduta durante un'azione: forse è stata eseguita.
+const LOST: &str = "connection lost: outcome unknown";
 const BAD_REPLY: &str = "unexpected reply from the server";
 
 pub(super) struct RemoteActions {
@@ -38,7 +40,14 @@ impl RemoteActions {
         let (recs, _) = self
             .sh
             .request(&req, TIMEOUT, None)
-            .map_err(|e| short(&e.to_string()))?;
+            .map_err(|e| match e.kind() {
+                // mai partita: esito certo
+                std::io::ErrorKind::NotConnected | std::io::ErrorKind::WouldBlock => {
+                    short(&e.to_string())
+                }
+                // la richiesta può essere arrivata (e il segnale partito): niente nuovi tentativi
+                _ => LOST.to_string(),
+            })?;
         recs.into_iter()
             .find(|r| r.kind == kind && r.rc == 0)
             .ok_or_else(|| BAD_REPLY.to_string())

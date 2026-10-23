@@ -805,6 +805,8 @@ mod tests {
                 latency_ms: None,
                 last_bytes: 0,
                 root: self.1,
+                generation: 0,
+                uid: None,
                 state: crate::source::RemoteState::Connected,
             })
         }

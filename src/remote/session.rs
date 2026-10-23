@@ -12,7 +12,7 @@
 
 use std::io::{self, Read, Write};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -48,8 +48,8 @@ impl Transport {
         }
     }
 
-    /// `marker`: riga che la shell avviata da sudo stampa quando la password è stata accettata.
-    fn command(&self, interactive: bool, marker: &str) -> Command {
+    /// `tag` e `prompt`: vedi `SudoMode::remote_args`.
+    fn command(&self, interactive: bool, tag: &str, prompt: &str) -> Command {
         match self {
             Transport::LocalSh => {
                 let mut c = Command::new("sh");
@@ -83,11 +83,21 @@ impl Transport {
                 }
                 // `env TERM=dumb`: i profili remoti che chiamano tput & co. non si lamentano (l'output spurio prima di
                 // READY è comunque ignorato)
-                c.arg(target.ssh_dest()).args(sudo.remote_args(marker));
+                c.arg(target.ssh_dest()).args(sudo.remote_args(tag, prompt));
                 c
             }
         }
     }
+}
+
+/// Dati dell'handshake sudo.
+struct Handshake<'a> {
+    tag: &'a str,
+    slot: &'a sudo::PwSlot,
+    target: &'a Target,
+    prompts: &'a AtomicUsize,
+    scrub: &'a AtomicBool,
+    interactive: bool,
 }
 
 /// Un record della risposta.
@@ -218,8 +228,8 @@ pub(crate) struct Session {
     /// uid dello script sul server (0 = root) e catena dei suoi antenati fino a PID 1 escluso.
     pub uid: Option<u32>,
     pub self_pids: Vec<u32>,
-    /// `Some(true)` = sudo con password (`-S`), `Some(false)` = `sudo -n`.
-    sudo: Option<bool>,
+    /// sudo attivo su questa sessione.
+    sudo: bool,
     pub stderr_tail: Arc<Mutex<Vec<u8>>>,
     pub bytes_in: Arc<AtomicU64>,
 }
@@ -257,14 +267,52 @@ fn nonce() -> String {
     s
 }
 
+/// Unico punto di pulizia dei testi che vengono dal server (hostname, stderr, messaggi di stato): i
+/// caratteri di controllo (ESC, BEL, ...) diventano `?`, così non raggiungono mai il terminale.
+pub(crate) fn clean(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
+}
+
+/// Aggiunge una riga di stderr a `tail` (ultimi 4 KiB). Dopo l'invio della password (`scrub`) non si
+/// conserva testo del server: se la riga è un messaggio noto di sudo ne resta solo il testo canonico, il
+/// resto (ciò che una shell potrebbe stampare eseguendo la riga della password) è scartato.
+fn keep(tail: &Mutex<Vec<u8>>, line: &[u8], scrub: bool) {
+    let canon;
+    let text: &[u8] = if scrub {
+        match sudo::classify(&String::from_utf8_lossy(line)) {
+            Some(v) => {
+                canon = v.text();
+                canon.as_bytes()
+            }
+            None => return,
+        }
+    } else {
+        line
+    };
+    if text.is_empty() {
+        return;
+    }
+    let mut t = tail.lock().unwrap_or_else(|e| e.into_inner());
+    t.extend_from_slice(text);
+    t.push(b'\n');
+    if t.len() > 4096 {
+        let cut = t.len() - 4096;
+        t.drain(..cut);
+    }
+}
+
 impl Session {
     /// Avvia il processo, invia l'agente e attende `READY`. Con `interactive` lo stderr del processo
     /// (richieste di password, host key…) è inoltrato al terminale fino a `READY`.
     pub fn start(tr: &Transport, interactive: bool) -> io::Result<Session> {
         let sudo_mode = tr.sudo().cloned();
-        // marcatore di sudo: casuale e diverso dal nonce del protocollo (che non compare mai sulla riga di comando)
-        let marker = nonce().replace("ngtop-", "ngsudo-");
-        let mut cmd = tr.command(interactive, &marker);
+        // prompt e marcatore di sudo: casuali, diversi dal nonce del protocollo (che non compare mai sulla
+        // riga di comando). Il prompt non contiene `%`.
+        let tag = nonce().replace("ngtop-", "");
+        let prompt = format!("ngsudo-P-{}:", nonce().replace("ngtop-", ""));
+        let mut cmd = tr.command(interactive, &tag, &prompt);
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -276,10 +324,17 @@ impl Session {
         // con sudo lo stderr non va al terminale: i suoi messaggi diventano l'errore di connect
         let passthrough = Arc::new(AtomicBool::new(interactive && sudo_mode.is_none()));
         let stderr_tail = Arc::new(Mutex::new(Vec::new()));
+        // quante volte sudo ha mostrato il prompt (a inizio riga, completo) e se la password è già partita
+        let prompts = Arc::new(AtomicUsize::new(0));
+        let scrub = Arc::new(AtomicBool::new(false));
         {
             let (pt, tail) = (passthrough.clone(), stderr_tail.clone());
+            let (prompts, scrub) = (prompts.clone(), scrub.clone());
+            let want = sudo_mode.as_ref().map(|_| prompt.clone().into_bytes());
             std::thread::spawn(move || {
                 let mut b = [0u8; 1024];
+                // riga corrente non ancora terminata
+                let mut line: Vec<u8> = Vec::new();
                 while let Ok(n) = stderr.read(&mut b) {
                     if n == 0 {
                         break;
@@ -287,13 +342,24 @@ impl Session {
                     if pt.load(Ordering::Relaxed) {
                         let _ = io::stderr().write_all(&b[..n]);
                     }
-                    let mut t = tail.lock().unwrap_or_else(|e| e.into_inner());
-                    t.extend_from_slice(&b[..n]);
-                    if t.len() > 4096 {
-                        let cut = t.len() - 4096;
-                        t.drain(..cut);
+                    for &c in &b[..n] {
+                        if c == b'\n' {
+                            keep(&tail, &line, scrub.load(Ordering::SeqCst));
+                            line.clear();
+                        } else {
+                            line.push(c);
+                            if line.len() > 4096 {
+                                line.drain(..2048);
+                            }
+                        }
+                        // il prompt vale solo se è l'intera riga corrente
+                        if want.as_deref() == Some(line.as_slice()) {
+                            prompts.fetch_add(1, Ordering::SeqCst);
+                            line.clear();
+                        }
                     }
                 }
+                keep(&tail, &line, scrub.load(Ordering::SeqCst));
             });
         }
         let bytes_in = Arc::new(AtomicU64::new(0));
@@ -339,14 +405,23 @@ impl Session {
             clock_ticks: 100,
             uid: None,
             self_pids: Vec::new(),
-            sudo: sudo_mode
-                .as_ref()
-                .map(|m| matches!(m, SudoMode::Password(_))),
+            sudo: sudo_mode.is_some(),
             stderr_tail,
             bytes_in,
         };
-        if let Some(SudoMode::Password(pw)) = &sudo_mode {
-            s.sudo_handshake(pw, &marker, interactive)?;
+        if let Some(SudoMode::On(slot)) = &sudo_mode {
+            let Transport::Ssh { target, .. } = tr else {
+                unreachable!("sudo solo con ssh")
+            };
+            let h = Handshake {
+                tag: &tag,
+                slot,
+                target,
+                prompts: &prompts,
+                scrub: &scrub,
+                interactive,
+            };
+            s.sudo_handshake(&h)?;
         }
         let mut init = format!("NG='{ng}'\n").into_bytes();
         init.extend_from_slice(AGENT.as_bytes());
@@ -414,13 +489,10 @@ impl Session {
         while self.tail_text().trim().is_empty() && t0.elapsed() < Duration::from_millis(300) {
             std::thread::sleep(Duration::from_millis(20));
         }
-        if let Some(pw) = self.sudo
-            && let Some(v) = sudo::classify(&self.tail_text(), pw)
+        if self.sudo
+            && let Some(v) = sudo::classify(&self.tail_text())
         {
-            return match v {
-                Verdict::NeedPassword => io::Error::new(io::ErrorKind::PermissionDenied, v.text()),
-                _ => io::Error::other(v.text()),
-            };
+            return io::Error::other(v.text());
         }
         io::Error::new(io::ErrorKind::ConnectionAborted, self.failure_text())
     }
@@ -430,25 +502,26 @@ impl Session {
         String::from_utf8_lossy(&t).into_owned()
     }
 
-    /// Invia la password UNA volta e aspetta il marcatore della shell avviata da sudo. Finché non arriva
-    /// non parte nessuna riga dello script: sudo, con una password sbagliata, leggerebbe le righe seguenti
-    /// come nuovi tentativi (e finirebbero nel log del server). Errore o scadenza: il chiamante scarta la
-    /// sessione, che chiude lo stdin e uccide ssh.
-    fn sudo_handshake(
-        &mut self,
-        pw: &sudo::Password,
-        marker: &str,
-        interactive: bool,
-    ) -> io::Result<()> {
-        self.send(pw.line())?;
-        let mut want = marker.as_bytes().to_vec();
+    /// Handshake con sudo, su UNA connessione. Lo script non parte finché non arriva il marcatore.
+    /// - marcatore subito: sudo non vuole la password (NOPASSWD), non ne viene mandata nessuna;
+    /// - prompt (quello casuale, a inizio riga): la password parte SOLO ora, una volta, poi si aspetta il
+    ///   marcatore; un secondo prompt = password sbagliata;
+    /// - la password non si manda mai "al buio": se sudo non la chiede, nessuno la legge.
+    ///
+    /// Errore o scadenza: il chiamante scarta la sessione (stdin chiuso, ssh ucciso).
+    fn sudo_handshake(&mut self, h: &Handshake) -> io::Result<()> {
+        let mut want = format!("ngsudo-{}", h.tag).into_bytes();
         want.push(b'\n');
-        // con ssh interattivo l'utente può ancora stare digitando la password di ssh
-        let wait = if interactive { 120 } else { 20 };
-        let deadline = Instant::now() + Duration::from_secs(wait);
+        let mut sent: Option<sudo::Password> = None;
+        // prima del prompt può esserci l'autenticazione di ssh (utente che digita); dopo, pochi secondi
+        let mut deadline =
+            Instant::now() + Duration::from_secs(if h.interactive { 300 } else { 30 });
         loop {
             if let Some(i) = find(&self.buf, &want, 0) {
                 self.buf.drain(..i + want.len());
+                if let Some(p) = sent {
+                    h.slot.set(p);
+                }
                 return Ok(());
             }
             if self.buf.len() > MAX_BEFORE_READY {
@@ -457,25 +530,39 @@ impl Session {
                     "too much output before the remote agent started",
                 ));
             }
-            // errore già chiaro dallo stderr: niente attesa
-            if let Some(v) = sudo::classify(&self.tail_text(), true) {
+            let n = h.prompts.load(Ordering::SeqCst);
+            if n >= 2 {
+                return Err(io::Error::other(Verdict::Wrong.text()));
+            }
+            if n == 1 && sent.is_none() {
+                let pw = match h.slot.get() {
+                    Some(p) => p,
+                    None if h.interactive => sudo::ask_password(h.target)?,
+                    None => return Err(io::Error::other(sudo::NEED_PASSWORD)),
+                };
+                // da qui in poi niente testo del server nello stderr_tail
+                h.scrub.store(true, Ordering::SeqCst);
+                self.send(pw.line())?;
+                sent = Some(pw);
+                deadline = Instant::now() + Duration::from_secs(20);
+                continue;
+            }
+            if let Some(v) = sudo::classify(&self.tail_text()) {
                 return Err(io::Error::other(v.text()));
             }
             if Instant::now() >= deadline {
-                return Err(io::Error::other(Verdict::Wrong.text()));
+                return Err(if sent.is_some() {
+                    io::Error::other(Verdict::Wrong.text())
+                } else {
+                    io::Error::new(io::ErrorKind::TimedOut, "connection timed out")
+                });
             }
             match self.rx.recv_timeout(Duration::from_millis(50)) {
                 Ok(c) => self.buf.extend_from_slice(&c),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     let _ = self.child.wait();
-                    let e = self.connect_failure();
-                    // processo chiuso senza una spiegazione: la causa più probabile è la password
-                    return Err(if self.tail_text().trim().is_empty() {
-                        io::Error::other(Verdict::Wrong.text())
-                    } else {
-                        e
-                    });
+                    return Err(self.connect_failure());
                 }
             }
         }
@@ -488,7 +575,7 @@ impl Session {
         if t.is_empty() {
             "connection closed".to_string()
         } else {
-            t.lines().last().unwrap_or(t).to_string()
+            clean(t.lines().last().unwrap_or(t))
         }
     }
 
@@ -578,4 +665,9 @@ impl Session {
     pub fn kill(&mut self) {
         let _ = self.child.kill();
     }
+}
+
+#[cfg(test)]
+pub(crate) fn keep_for_test(tail: &Mutex<Vec<u8>>, line: &[u8], scrub: bool) {
+    keep(tail, line, scrub);
 }

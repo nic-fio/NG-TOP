@@ -18,7 +18,7 @@ use super::panoramica::{dim, fg, pct_color, span};
 use crate::collect::System;
 use crate::collect::procdetail::{DetailCollector, DetailTab, ProcDetail, policy_name};
 use crate::collect::process::{Process, SortKey};
-use crate::source::actions::{LocalActions, ProcActions};
+use crate::source::actions::{NoActions, ProcActions};
 use crate::ui::app::{App, HISTORY_LEN};
 use crate::ui::fmt;
 use crate::ui::history::History;
@@ -189,13 +189,20 @@ pub struct SignalDialog {
     pub prot: Vec<(u32, &'static str)>,
     /// Macchina remota su cui si agisce (destinazione), se non è questa.
     pub machine: Option<String>,
+    /// Connessione remota all'apertura (0 in locale).
+    pub generation: u64,
 }
+
+/// Inizio del testo con cui il trasporto dichiara un esito incerto (connessione caduta).
+const UNKNOWN_OUTCOME: &str = "connection lost: outcome unknown";
 
 /// Dove si agisce, per contare i processi "di altri utenti" e nominare la macchina.
 pub struct Origin<'a> {
     pub target: &'a str,
-    /// Utente con cui si agisce sul server (`root` con sudo), se noto.
-    pub user: Option<&'a str>,
+    /// Uid con cui si agisce sul server, se noto (ignoto: ogni processo conta come di altri).
+    pub uid: Option<u32>,
+    /// Numero della connessione all'apertura: se cambia, l'invio è rifiutato.
+    pub generation: u64,
 }
 
 impl SignalDialog {
@@ -208,10 +215,10 @@ impl SignalDialog {
         let tree_pids = subtree_pids(rows, p.pid);
         let in_tree: HashSet<u32> = tree_pids.iter().copied().collect();
         let me = rustix::process::geteuid().as_raw();
-        // In locale si confronta l'uid; in remoto il nome utente (se ignoto, quello del processo scelto).
+        // In locale si confronta l'uid; in remoto quello del server (ignoto: tutti di altri, prudente).
         let foreign_of = |q: &Process| match origin {
             None => q.uid != me,
-            Some(o) => q.user != o.user.unwrap_or(&p.user),
+            Some(o) => o.uid != Some(q.uid),
         };
         let mut tree_starts = vec![(p.pid, p.start_ticks)];
         let mut foreign = 0;
@@ -238,6 +245,7 @@ impl SignalDialog {
             armed: false,
             prot,
             machine: origin.map(|o| o.target.to_string()),
+            generation: origin.map_or(0, |o| o.generation),
         }
     }
 
@@ -371,22 +379,12 @@ pub fn open_dialog(app: &mut App) {
 
 /// Dialogo per `p`, con le azioni e (in remoto) la macchina dell'app.
 fn dialog_for(app: &App, p: &Process) -> SignalDialog {
-    let user = remote_user(&app.remote_target, app.remote_root);
     let origin = app.remote.then(|| Origin {
         target: &app.remote_target,
-        user,
+        uid: app.remote_uid,
+        generation: app.remote_generation,
     });
     SignalDialog::new(p, &app.rows, &*app.proc.act, origin.as_ref())
-}
-
-/// Utente con cui si agisce sul server: `root` se i comandi girano da root, altrimenti quello
-/// della destinazione (`user@host`, `ssh://user@host:porta`), se scritto.
-fn remote_user(target: &str, root: bool) -> Option<&str> {
-    if root {
-        return Some("root");
-    }
-    let t = target.strip_prefix("ssh://").unwrap_or(target);
-    t.split_once('@').map(|(u, _)| u).filter(|u| !u.is_empty())
 }
 
 /// Apre il dialogo su un pid noto (es. la connessione scelta in Rete e dischi).
@@ -438,6 +436,14 @@ fn name_of(rows: &[Process], pid: u32) -> String {
 /// Invia il segnale scelto ai bersagli, dopo aver riverificato che siano ancora gli stessi
 /// processi (pid + avvio); riassume l'esito nella riga di stato.
 fn send_dialog(app: &mut App, d: &SignalDialog) {
+    // Riconnessione (o server riavviato) dopo l'apertura: pid e protezioni non valgono più.
+    if app.remote && d.generation != app.remote_generation {
+        app.proc.set_status(
+            "the connection changed since the dialog was opened: nothing sent".into(),
+            false,
+        );
+        return;
+    }
     let sig = d.signal();
     let opened = d.targets();
     if opened.is_empty() {
@@ -450,7 +456,7 @@ fn send_dialog(app: &mut App, d: &SignalDialog) {
     let cand: Vec<(u32, u64)> = if d.subtree {
         verified_subtree(&app.rows, d.pid, &stored)
             .into_iter()
-            .filter(|&(p, _)| d.protected(p).is_none())
+            .filter(|&(p, _)| act.protected(p).is_none())
             .collect()
     } else {
         stored
@@ -495,18 +501,26 @@ fn send_dialog(app: &mut App, d: &SignalDialog) {
     }
     let (mut ok, mut fail) = (0usize, 0usize);
     let mut first_err: Option<(u32, String)> = None;
+    let mut unknown: Option<String> = None;
     // Una sola chiamata per tutto il sottoalbero.
     for (&(pid, _), res) in cand.iter().zip(act.signal(&cand, sig.num)) {
         match res {
             Ok(()) => ok += 1,
             Err(e) => {
                 fail += 1;
+                if e.starts_with(UNKNOWN_OUTCOME) {
+                    unknown.get_or_insert_with(|| e.clone());
+                }
                 first_err.get_or_insert((pid, e));
             }
         }
     }
     let label = |pid: u32| format!("{} {}", pid, name_of(&app.rows, pid).trim().to_owned());
     let (text, good) = match (targets.len(), first_err) {
+        _ if unknown.is_some() => (
+            format!("{}: {}", sig.name, unknown.unwrap_or_default()),
+            false,
+        ),
         (1, None) => (format!("{} sent to {}", sig.name, label(targets[0])), true),
         (1, Some((pid, e))) => (format!("{} to {}: {e}", sig.name, label(pid)), false),
         (n, None) => (
@@ -653,7 +667,8 @@ impl ProcState {
             hist_pid: None,
             scroll: 0,
             status: None,
-            act: Arc::new(LocalActions::new(std::path::PathBuf::from("/proc"))),
+            // Mai azioni locali per default: le assegna chi crea l'app da `sys.roots.act`.
+            act: Arc::new(NoActions),
             inited: false,
             tab_hits: Vec::new(),
             detail_rect: None,
@@ -1399,6 +1414,8 @@ pub struct FakeActions {
     /// Pid per cui il segnale fallisce con EPERM.
     pub fail_pid: Option<u32>,
     pub nice_err: Option<String>,
+    /// Errore per ogni segnale (prevale su `fail_pid`).
+    pub sig_err: Option<String>,
     pub starts_calls: std::sync::atomic::AtomicUsize,
     pub signal_calls: std::sync::atomic::AtomicUsize,
 }
@@ -1418,6 +1435,9 @@ impl ProcActions for FakeActions {
         targets
             .iter()
             .map(|&(pid, _)| {
+                if let Some(e) = &self.sig_err {
+                    return Err(e.clone());
+                }
                 if Some(pid) == self.fail_pid {
                     return Err("permission denied (EPERM)".to_string());
                 }
@@ -1442,6 +1462,7 @@ impl ProcActions for FakeActions {
 mod tests {
     use super::*;
     use crate::collect::Roots;
+    use crate::source::actions::LocalActions;
     use crate::ui::app::Section;
     use crate::ui::snapshot::{render_app, to_text};
     use crossterm::event::{KeyEventKind, KeyEventState, KeyModifiers};
@@ -1824,33 +1845,103 @@ mod tests {
         assert_eq!(f.sent.lock().unwrap().len(), 64);
     }
 
-    #[test]
-    fn remoto_nomina_la_macchina_e_conta_gli_utenti_del_server() {
+    fn remoto_app(uid: Option<u32>, target: &str) -> (App, Arc<FakeActions>) {
         let mut r = rows();
-        r[3].user = "root".into(); // 12 di un altro utente
+        for p in &mut r {
+            p.uid = 1000;
+        }
+        r[3].uid = 0; // 12 di un altro utente
         let mut a = App::new((120, 40), "h".into());
         a.set_processes(r);
         a.remote = true;
-        a.remote_target = "alex@server".into();
+        a.remote_target = target.into();
+        a.remote_uid = uid;
+        a.remote_generation = 5;
         let (f, act) = fake(FakeActions::default());
         a.proc.act = act;
+        (a, f)
+    }
+
+    #[test]
+    fn remoto_nomina_la_macchina_e_conta_gli_utenti_del_server() {
+        // uid noto e uguale: solo il 12 è di altri, ma con 1 non basta a chiedere... lo chiede (foreign > 0)
+        let (mut a, f) = remoto_app(Some(1000), "alex@server");
         select_pid(&mut a, 10);
         a.on_key(key(KeyCode::F(9)));
         a.on_key(key(KeyCode::Char(' ')));
         let d = a.dialog.clone().unwrap();
         assert!(d.lines().iter().any(|l| l == "On: alex@server"));
-        // utente del server = "alex": nessuno dei processi "u" è suo, quindi tutti e 4 sono di altri
-        assert_eq!(d.foreign, 4);
+        assert_eq!(d.foreign, 1);
         assert!(d.needs_confirm());
         a.on_key(key(KeyCode::Enter));
         assert!(f.sent.lock().unwrap().is_empty());
         assert!(a.dialog.as_ref().unwrap().armed);
         a.on_key(key(KeyCode::Enter));
         assert_eq!(f.sent.lock().unwrap().len(), 4);
-        // con root sul server l'utente di riferimento è "root"
-        assert_eq!(remote_user("alex@server", true), Some("root"));
-        assert_eq!(remote_user("ssh://bob@10.0.0.5:2222", false), Some("bob"));
-        assert_eq!(remote_user("server", false), None);
+        // uid diverso o ignoto, target senza utente: tutti di altri, doppia conferma
+        for (uid, target) in [(Some(0), "alex@server"), (None, "server")] {
+            let (mut a, f) = remoto_app(uid, target);
+            select_pid(&mut a, 10);
+            a.on_key(key(KeyCode::F(9)));
+            a.on_key(key(KeyCode::Char(' ')));
+            let d = a.dialog.clone().unwrap();
+            assert!(d.foreign >= 3, "{uid:?}");
+            assert!(d.needs_confirm());
+            a.on_key(key(KeyCode::Enter));
+            assert!(f.sent.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn invio_rifiutato_dopo_cambio_di_connessione() {
+        let (mut a, f) = remoto_app(Some(1000), "alex@server");
+        select_pid(&mut a, 11);
+        a.on_key(key(KeyCode::F(9)));
+        a.remote_generation = 6; // riconnessione mentre il dialogo è aperto
+        a.on_key(key(KeyCode::Enter));
+        assert!(a.dialog.is_none());
+        assert!(f.sent.lock().unwrap().is_empty());
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(!ok && t.contains("connection changed"), "{t}");
+    }
+
+    #[test]
+    fn app_senza_azioni_non_tocca_quelle_locali() {
+        // default: NoActions; in remoto un processo "vivo" qui non viene mai segnalato
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let mut r = rows();
+        r.push(proc(child.id(), 0, "sleep"));
+        let mut a = App::new((120, 40), "h".into());
+        a.set_processes(r);
+        a.remote = true;
+        select_pid(&mut a, child.id());
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Enter));
+        a.on_key(key(KeyCode::Enter));
+        assert!(child.try_wait().unwrap().is_none());
+        change_nice(&mut a, 1);
+        assert!(!a.proc.status_text().unwrap().1);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn esito_incerto_mostrato_come_tale() {
+        let (mut a, _) = remoto_app(Some(1000), "alex@server");
+        let (_, act) = fake(FakeActions {
+            sig_err: Some("connection lost: outcome unknown (retry after checking)".into()),
+            ..FakeActions::default()
+        });
+        a.proc.act = act;
+        select_pid(&mut a, 11);
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Enter));
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(!ok && t.contains("connection lost: outcome unknown"), "{t}");
+        assert!(!t.contains("errors"));
     }
 
     #[test]
