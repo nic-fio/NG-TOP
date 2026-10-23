@@ -5,4 +5,5 @@
 
 pub mod collect;
 pub mod config;
+pub mod source;
 pub mod ui;
