@@ -51,13 +51,13 @@ S2 = p("The GPU section is nvtop inside ngtop: one panel per device, a history o
         [ui("GPU N history"), "Braille graphs of usage and VRAM, temperature and power of the selected card, 600 samples"],
         [ui("engines · GPU N"), "Busy percentage of each engine (graphics, compute, copy, video decode and encode) as read from the clients' fdinfo"],
         [ui("power"), "Present with room: power draw against the limit"],
-        [ui("GPU processes"), "Only the processes using a GPU: PID, User, DEV (which card), Type of work (Graphics, Compute, Video, Copy), GPU%, ENC%, DEC%, VRAM, CPU%, Mem, Name and Command, as the width allows"],
+        [ui("GPU processes"), "Only the processes using a GPU: PID, User, DEV (which card), Type of work (Graphics, Compute, Video, Copy), GPU%, ENC%, DEC%, VRAM, CPU%, Mem, Name and Command, as the width allows. When the selected card is an NVIDIA GPU whose processes come from " + c("--query-compute-apps") + ", the top border adds “only CUDA processes are listed on this GPU”"],
     ], "«TAB» — The GPU section") + \
     table(["Key", "Action"], [
         [key("d"), "Select the next device; the history and engines follow"],
         [key("F6") + ", " + key("/") + ", " + key("F9"), "Sort, filter, signal: as in the Overview"],
     ], "«TAB» — Keys of the GPU section") + \
-    p("With no GPU the section shows a panel saying “No GPU detected”. With an NVIDIA card or a card asleep, the device panel says what it "
+    p("With no GPU the section shows a panel saying “No GPU detected”. With an NVIDIA card without nvidia-smi, one that does not answer, or a card asleep, the device panel says what it "
       "can: ngtop never invents a figure for what it did not read.")
 
 S3 = p("Processes is the process manager: a large table, and for the selected process a detail area with seven tabs.", lead=True) + \

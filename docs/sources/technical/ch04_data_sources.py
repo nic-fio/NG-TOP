@@ -230,7 +230,7 @@ GPUFLOW = fig(
     + diamond(335, 58, 180, 70, "Driver known?", "amber")
     + diamond(570, 58, 190, 70, "Suspended?", "amber")
     + box(700, 30, 180, 56, "Read sysfs", "usage, VRAM, clocks, hwmon", "navy")
-    + box(235, 150, 200, 56, "Unsupported", "name only (NVIDIA)", "grey")
+    + box(235, 150, 200, 56, "Unsupported", "unknown driver", "grey")
     + box(470, 150, 220, 56, "Discrete and asleep", "no metrics are read", "amber")
     + arrow(222, 58, 244, 58) + arrow(426, 58, 474, 58, "#16a34a", False, "yes")
     + arrow(666, 58, 698, 58, "#16a34a", False, "no")
@@ -242,12 +242,29 @@ S8 = p("GPU data comes from two places: the device's own files in sysfs, and, fo
        "file of every open GPU descriptor of every process.", lead=True) + GPUFLOW + \
     table(["State", "When", "What ngtop does"], [
         [c("Active"), "the card is awake", "reads everything"],
-        [c("Idle"), "an <i>integrated</i> GPU whose runtime power management says “suspended”", "reads it normally: it shares the processor's "
+        [c("Idle"), "an <i>integrated</i> GPU whose runtime power management says “suspended” or “suspending”", "reads it normally: it shares the processor's "
          "package, so there is nothing to save and nothing to wake"],
-        [c("Suspended"), "a <i>discrete</i> GPU with " + c("power/runtime_status") + " “suspended” or " + c("power_state") + " “D3cold”",
-         "reads <b>none of its usage, memory, clock, sensor or link files</b>, so it is not woken; the screen says it is asleep and whether it is in D3cold"],
-        [c("Unsupported"), "any other driver, such as nvidia", "shows the name; nothing else"],
-    ], "«TAB» — The four states of a GPU") + \
+        [c("Suspended"), "a <i>discrete</i> GPU with " + c("power/runtime_status") + " “suspended” or “suspending”, or " + c("power_state") + " “D3cold”",
+         "reads <b>none of its usage, memory, clock, sensor or link files</b> (and never starts " + c("nvidia-smi") + " for it), so it is not woken; the screen says it is asleep and whether it is in D3cold"],
+        [c("Unsupported"), "any other driver, such as nouveau", "shows the name; nothing else"],
+        [c("NoTool"), "an NVIDIA card (driver " + c("nvidia") + ") and " + c("nvidia-smi") + " is not installed (" + c("NotFound") + ", or exit status 127 from the remote shell)",
+         "shows the name and “detected — install nvidia-smi for metrics” (“install nvidia-smi” in the compact layout); checks again every 60 s (" + c("NOTOOL_RECHECK") + ")"],
+        [c("NotResponding"), c("nvidia-smi") + " timed out (3 s), failed, returned no cards, or its latest sample is older than 10 s (" + c("MAX_AGE") + ")",
+         "shows “nvidia-smi not responding — retrying” (“nvidia-smi not responding” in the compact layout); asks again after a pause that doubles from 2 s up to 30 s (" + c("BACKOFF_MAX") + ")"],
+    ], "«TAB» — The six states of a GPU") + \
+    p("<b>NVIDIA.</b> A card with the " + c("nvidia") + " driver that is not suspended is read through " + c("nvidia-smi") + ", not sysfs (and DRM " + c("fdinfo") + " clients are skipped for it so counters come only from " + c("nvidia-smi") + "). "
+      "When the first awake NVIDIA card is seen, " + c("NvClient::spawn()") + " (" + c("src/collect/nvidia_worker.rs") + ") starts the " + c("ngtop-nvidia") + " thread, which runs every 2 s (" + c("POLL") + "). "
+      "The interface thread never waits: " + c("apply_nvidia()") + " takes the latest ready result if it is at most 10 s old (" + c("MAX_AGE") + "), or treats it as " + c("NotResponding") + " if it is older. "
+      "Only the awake cards are queried, passing " + c("-i <bus_id,...>") + " with the 8-digit PCI domain expected by " + c("nvidia-smi") + " (" + c("smi_bus_id()") + ", e.g. " + c("00000000:01:00.0") + ", matched back to " + c("/sys/class/drm") + " by " + c("norm_bus_id()") + " as " + c("0000:01:00.0") + "); when no card is awake, nothing is launched. "
+      "Every command is wrapped by " + c("guarded()") + " in a small " + c("sh") + " guard (" + c("GUARD") + ") that runs on the observed machine (local or remote, through " + c("roots.run") + ") and, in the same shell that then " + c("exec") + "s " + c("nvidia-smi") + ", re-reads " + c("power/runtime_status") + " of each target card right before execution: if any card is " + c("suspended") + " or " + c("suspending") + " or its state cannot be read, the shell exits (code 97, " + c("GUARD_ASLEEP") + ") without starting " + c("nvidia-smi") + ", and the worker waits a full 2 s round (" + rif("GPUs that must not be woken") + "). "
+      "On a remote machine each command goes through the persistent " + c("ssh") + " session and occupies it for its duration. "
+      "In each round the worker runs the card query (" + c("--query-gpu=<fields> --format=csv,noheader,nounits") + ") and then " + c("pmon -c 1 -s um") + ". "
+      "If the driver rejects a field in " + c("FIELDS_FULL") + " (" + c("is_unknown_field_error()") + "), the query is repeated with the basic list (" + c("FIELDS_BASE") + ") and the choice is remembered; " + c("[N/A]") + " and " + c("[Not Supported]") + " become “—”. "
+      "If " + c("pmon") + " fails or is not supported, the worker falls back to " + c("--query-compute-apps=gpu_bus_id,pid,used_memory --format=csv,noheader,nounits") + ", which lists only CUDA processes (" + c("procs_compute_only") + ", shown in the title of the “GPU processes” table as “only CUDA processes are listed on this GPU” when that card is selected); " + c("pmon") + " is retried every 30 rounds (" + c("PMON_RETRY_EVERY") + "). "
+      "If " + c("nvidia-smi") + " is missing (" + c("NotFound") + " or exit code 127), the state is " + c("NoTool") + " (“install nvidia-smi”). "
+      "Each command has a 3 s timeout (" + c("CMD_TIMEOUT") + "); on timeout or error the state is " + c("NotResponding") + " (“nvidia-smi not responding”) and the retry wait grows up to 30 s (" + c("BACKOFF_MAX") + "). "
+      "Everything from " + c("nvidia-smi") + " (" + c("src/collect/nvidia.rs") + ") is treated as hostile: at most 256 KB (" + c("MAX_OUTPUT") + ") are read (" + c("lossy()") + ", " + c("limita()") + "), at most 64 cards (" + c("MAX_GPUS") + ") and 4096 processes (" + c("MAX_PROCS") + ") are kept, control characters are stripped from card names (capped at 96 chars, " + c("MAX_NAME") + "), and all numbers are bounded to finite ranges, never panicking. "
+      "Known limits: on GeForce cards some fields are " + c("[Not Supported]") + ", graphics applications are not always listed, " + c("nouveau") + " is not supported, and the " + c("sh") + " guard does not check " + c("power_state=D3cold") + " (which is covered by the pre-check " + c("is_suspended()") + " on the data of the last refresh).") + \
     p("<b>Identity.</b> Read once per card (" + c("read_static()") + "): vendor and device from " + c("device/vendor") + " and "
       + c("device/device") + "; PCI slot and driver from " + c("device/uevent") + " (" + c("PCI_SLOT_NAME") + ", " + c("DRIVER")
       + "); the name from " + c("product_name") + " if the card has it, otherwise from the " + c("pci.ids") + " database "
@@ -332,7 +349,7 @@ S10 = p("The Services section needs systemd. It is available only if " + c("/run
       "seconds (" + c("QUERY_TIMEOUT") + "); actions use a separate connection that waits up to 120 seconds ("
       + c("ACTION_TIMEOUT") + ") because polkit may be waiting for a password. Subprocesses are run by "
       + c("run_with_timeout()") + ", which polls every 20 ms and kills the child at the limit.") + \
-    warn("<b>journalctl</b> and <b>systemd-analyze</b> are the only external programs ngtop runs. If one is missing, the "
+    warn("In the Services section, <b>journalctl</b> and <b>systemd-analyze</b> are the only external programs ngtop runs. If one is missing, the "
          "message “journalctl not found” appears in the journal panel; the rest keeps working.", "Subprocesses.")
 
 CHAPTER = ("Data sources", [

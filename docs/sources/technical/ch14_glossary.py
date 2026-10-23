@@ -45,7 +45,7 @@ KERNEL = [
     ("IOPS, latency, queue", "Operations per second, average time per operation, and requests in flight, of a disk." + v("Disks and filesystems")),
     ("musl", "A small C library that can be linked into an executable completely; with it ngtop is one static file." + v("musl and build.sh")),
     ("NSS", "The name service switch of the C library, which lets programs ask directories (LDAP, sssd) for user names. A static musl program has none." + v("What static takes away")),
-    ("NVML", "NVIDIA's management library; shared and closed. The reason NVIDIA cards are only detected." + v("Why not NVML")),
+    ("NVML", "NVIDIA's management library; shared and closed. The reason NVIDIA cards are read through nvidia-smi instead." + v("Why not NVML")),
     ("pidfd", "A file descriptor that refers to one process for ever, immune to reuse of the pid number." + v("Signals: pidfd and start time")),
     ("Runtime PM", "Power management that suspends a device when idle. A discrete GPU suspended this way is not woken." + v("GPUs that must not be woken")),
     ("Start time (" + c("starttime") + ")", "The moment a process started, in clock ticks since boot; with the pid, the identity of a process." + v("Signals: pidfd and start time")),

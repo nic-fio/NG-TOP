@@ -102,19 +102,21 @@ S4 = p("Starting and stopping a service is another action that cannot be undone 
         ["Read errors", "Texts like " + c("AccessDenied") + ", " + c("InteractiveAuthorizationRequired") + " or “not authorized” become “denied”; everything else is shown as received (" + c("classify_error()") + ")"],
         ["Fresh state", "After enable or disable, the cache of unit file states is aged so the next list shows the change"],
     ], "«TAB» — How service actions are protected") + \
-    p("What ngtop does <i>not</i> do: it never edits unit files, never masks, never runs a command through a shell. Its only two external programs, "
+    p("What ngtop does <i>not</i> do: it never edits unit files, never masks, never runs a command through a shell. Its two external programs in this section, "
       + c("journalctl") + " and " + c("systemd-analyze") + ", are read-only and get a fixed list of arguments, with the unit name as a separate argument and never through a shell.")
 
-S5 = p("A discrete GPU in D3cold or runtime-suspended costs almost nothing; reading its files wakes it, which can take a second and a few watts. A monitor "
-       "that does this every second keeps the card on forever. The rule is therefore strict.", lead=True) + \
+S5 = p("A discrete GPU in D3cold or runtime-suspended costs almost nothing; reading its files or running " + c("nvidia-smi") + " on it wakes it, which can take a second and a few watts. A monitor "
+       "that does this every second keeps the card on forever. The rule <b>“Never wake a sleeping GPU”</b> is therefore strict.", lead=True) + \
     table(["Rule", "Detail"], [
-        ["Metrics are not read", "For a discrete card whose " + c("power/runtime_status") + " is “suspended” or whose " + c("power_state") + " is “D3cold”, no usage, memory, clock, sensor or "
-         "link file is opened. The panel shows “suspended” or “D3cold”. Test: " + c("gpu_sospesa_non_viene_interrogata")],
+        ["Metrics are not read", "For a discrete card whose " + c("power/runtime_status") + " is “suspended” or “suspending”, or whose " + c("power_state") + " is “D3cold” (" + c("is_suspended()") + "), no usage, memory, clock, sensor or "
+         "link file is opened. The panel shows “suspended” or “D3cold”. Tests: " + c("gpu_sospesa_non_viene_interrogata") + ", " + c("nvidia_suspending_conta_come_sospesa")],
         ["Integrated GPUs are read anyway", "Intel on PCI bus 0, and an AMD APU once recognised: they live in the processor's package, there is nothing to save. Their state is " + ui("Idle")
          + ". Test: " + c("integrata_con_runtime_pm_si_legge_comunque")],
         ["Unknown AMD cards are treated as discrete", "The first time, before the memory size says it is an APU, the stricter rule applies"],
-        ["Clients are still counted", "The processes are scanned for DRM descriptors and their " + c("fdinfo") + " files as usual: per-process counters do not come from the device's sysfs folder"],
-        ["NVIDIA is only detected", "No read at all besides the identity"],
+        ["Clients are still counted (DRM)", "For AMD and Intel, the processes are scanned for DRM descriptors and their " + c("fdinfo") + " files as usual: per-process counters do not come from the device's sysfs folder (for NVIDIA cards " + c("fdinfo") + " is skipped)"],
+        ["NVIDIA: awake cards only, with -i", "Only awake NVIDIA cards are passed to " + c("nvidia-smi") + ", via " + c("-i <bus id>") + "; when no card is awake, the " + c("ngtop-nvidia") + " thread launches nothing. Tests: " + c("nvidia_sospesa_non_lancia_nvidia_smi") + ", " + c("nvidia_due_schede_una_sospesa_interroga_solo_la_sveglia") + ", " + c("nvidia_scheda_che_si_sospende_non_viene_piu_interrogata")],
+        ["NVIDIA: the sh guard before every launch", "Because a card can go to sleep between the last refresh and the moment the worker runs " + c("nvidia-smi") + " (especially over " + c("ssh") + ", where the collector's check uses the snapshot of the last refresh), every launch (" + c("--query-gpu") + ", " + c("pmon") + ", " + c("--query-compute-apps") + ") is wrapped by " + c("guarded()") + " in a small " + c("sh") + " guard (" + c("GUARD") + " in " + c("src/collect/nvidia_worker.rs") + "). On the observed machine (local or remote) and in the same shell that then " + c("exec") + "s " + c("nvidia-smi") + ", the guard re-reads " + c("/sys/class/drm/cardN/device/power/runtime_status") + " for each target card right before starting " + c("nvidia-smi") + ": if any card is " + c("suspended") + " or " + c("suspending") + ", or its status cannot be read, the shell exits (code 97, " + c("GUARD_ASLEEP") + ") without launching anything. When the guard finds a card asleep (" + c("Run::Asleep") + "), it is not treated as an error and the worker waits a full 2 s round (" + c("POLL") + "). Tests: " + c("guardia_lancia_solo_con_schede_sveglie") + ", " + c("nvidia_guardia_addormentata_non_e_un_errore_e_non_fa_raffiche")],
+        ["Known limit of the guard", "The " + c("sh") + " guard checks " + c("power/runtime_status") + " (" + c("suspended") + " / " + c("suspending") + "), not " + c("power_state=D3cold") + "; " + c("D3cold") + " is covered by the pre-check " + c("is_suspended()") + " on the data of the last refresh"],
     ], "«TAB» — Not waking the GPU")
 
 S6 = p("A terminal program that leaves the terminal in raw mode on the alternate screen, with the cursor hidden and the mouse on, ruins the user's shell. "

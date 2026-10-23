@@ -16,14 +16,32 @@ S_SUPPORT = p("ngtop reads the graphics cards from the kernel, not from a vendor
         ["AMD", c("amdgpu"), "Full: use, memory, clocks, temperature, power, fan, engines, per-process use."],
         ["Intel", c("i915") + ", " + c("xe"), "Full for what the driver reports: use by engine, clocks, memory, per-process use. "
          "Power and some temperatures are often not available."],
-        ["NVIDIA", c("nvidia"), "<b>Detected only.</b> The card is listed with its name, and the panel says " +
-         ui("support coming soon (driver nvidia)") + ". Full support is planned."],
+        ["NVIDIA", c("nvidia") + " (proprietary)", "Through <code>nvidia-smi</code>, which is installed with the driver: use, memory, clocks, "
+         "temperature, power, fan, PCIe, encoder and decoder, and the processes. Without <code>nvidia-smi</code> the card is only listed and the panel says " +
+         ui("detected — install nvidia-smi for metrics") + "."],
         ["Any other", "for example " + c("nouveau") + ", " + c("radeon"), "<b>Detected, not supported.</b> The card is listed and the panel says " +
          ui("not supported (driver nouveau)") + " (with the name of the driver)."],
     ], "«TAB» — Graphics cards and drivers") + \
-    note("NVIDIA's own tools read the card through a library of the vendor. A single static file like ngtop cannot load it "
-         "cleanly, so NVIDIA needs a different way, which is planned. If you use an NVIDIA card with the proprietary "
-         "driver, ngtop shows the card but no numbers for it.") + \
+    note("<b>How NVIDIA works.</b> NVIDIA publishes its numbers only through its own library, which a single static file like ngtop "
+         "cannot load. So every 2 seconds a separate thread runs <code>nvidia-smi</code>: first the card query, then <code>pmon</code> "
+         "for the processes (if <code>pmon</code> is not supported it falls back to <code>--query-compute-apps</code>, which lists only "
+         "CUDA processes, and retries <code>pmon</code> every 30 rounds). The screen never waits for it, and results older than 10 seconds "
+         "are not used; the output is capped at 256 KB, control characters are stripped from the card name, and all numbers are bounded. "
+         "Only awake cards are queried, with <code>-i</code> and their PCI bus address (" + rif("Sleeping cards") + "): every launch goes "
+         "through a small <code>sh</code> guard on the observed machine (local or remote, in the same shell that then runs "
+         "<code>nvidia-smi</code>) that re-reads <code>power/runtime_status</code> of each card and runs nothing if any is "
+         "<code>suspended</code> or <code>suspending</code> or its state cannot be read, waiting a full 2-second round when a card is "
+         "asleep. On a remote machine each command goes through the <code>ssh</code> session and occupies it for its duration. If a "
+         "driver refuses a field, ngtop falls back to the basic fields. If <code>nvidia-smi</code> is missing (exit code 127), the panel "
+         "says " + ui("detected — install nvidia-smi for metrics") + " (" + ui("install nvidia-smi") + " in the compact layout). If a "
+         "command takes more than 3 seconds or returns an error, the panel says " + ui("nvidia-smi not responding — retrying") + " (" +
+         ui("nvidia-smi not responding") + " in the compact layout) and the wait between retries grows up to 30 seconds.") + \
+    warn("<b>Known limits of NVIDIA.</b> This version has not yet been tried on real cards. On GeForce cards some fields are reported as "
+         "<i>[Not Supported]</i> and ngtop shows <b>—</b>; graphics applications are not always listed, and when "
+         "<code>nvidia-smi</code> cannot list them only the CUDA (compute) processes appear, with the note " +
+         ui("only CUDA processes are listed on this GPU") + " in the title of the process table for the selected card. The "
+         "open-source <code>nouveau</code> driver is not supported. The <code>sh</code> guard does not check "
+         "<code>power_state=D3cold</code> (which is covered by the check before it, from the data of the last refresh).") + \
     p("If ngtop finds no card at all, the section says " + ui("No GPU detected") + ".")
 
 S_CARD = p("Each card has a panel. The title says <code>GPU 0 · Name of the card</code>; on the right it gives the kind, the "
@@ -49,14 +67,18 @@ S_KINDS = p("ngtop distinguishes two kinds of card, because they behave differen
     p("When a laptop or a desktop has both, you see two panels, <code>GPU 0</code> and <code>GPU 1</code>. If they do not "
       "fit side by side they are stacked.")
 
-S_SLEEP = p("A discrete card in power saving is <b>asleep</b>. Reading its files would wake it up, which costs power and "
-            "defeats the purpose of letting it sleep. So ngtop <b>does not read a sleeping discrete GPU</b>. Its panel says:", lead=True) + \
+S_SLEEP = p("A discrete card in power saving is <b>asleep</b> (<code>power/runtime_status</code> is <code>suspended</code> or "
+            "<code>suspending</code>, or <code>power_state</code> is <code>D3cold</code>). Reading its files or running "
+            "<code>nvidia-smi</code> on it would wake it up, which costs power and defeats the purpose of letting it sleep. "
+            "So ngtop <b>does not read a sleeping discrete GPU</b>, and for NVIDIA cards a shell guard re-reads "
+            "<code>power/runtime_status</code> right before each <code>nvidia-smi</code> call and aborts if any target card is "
+            "asleep. Its panel says:", lead=True) + \
     table(["Message", "Meaning"], [
         [ui("suspended — not queried, to avoid waking it"), "The card is in runtime suspend. No numbers are shown."],
         [ui("suspended (D3cold) — not queried, to avoid waking it"), "The card is completely powered off (state D3cold)."],
     ], "«TAB» — Messages of a sleeping card") + \
     p("As soon as some program wakes the card, ngtop shows its numbers again. In the compact layout a short word is written "
-      "instead: " + ui("suspended") + ", " + ui("coming soon") + " (NVIDIA) or " + ui("not supported") + ".") + \
+      "instead: " + ui("suspended") + ", " + ui("install nvidia-smi") + ", " + ui("nvidia-smi not responding") + " (NVIDIA) or " + ui("not supported") + ".") + \
     p("Integrated cards are different: they switch on and off all the time while the machine works, so there is nothing "
       "to save, and ngtop reads them always. When the card is idle at that moment, the title shows " + ui("idle") + ".") + \
     tip("Do you see a card suspended while you expect it to work? That is the proof that ngtop is leaving it alone. Start "
@@ -73,7 +95,9 @@ S_HIST = p("Under the cards, when the window is tall enough, there are three mor
     p("The engines panel and the power panel appear only if the window is at least 100 columns wide.")
 
 S_PROCS = p("The bottom of the section is the table " + ui("GPU processes") + ": only the processes that are using a graphics "
-            "card. Its title shows the sort column, the number of processes and the sum of their graphics memory.", lead=True) + \
+            "card. Its title shows the sort column, the number of processes and the sum of their graphics memory (and, when "
+            "the selected card is an NVIDIA GPU where only <code>--query-compute-apps</code> is available, " +
+            ui("only CUDA processes are listed on this GPU") + ").", lead=True) + \
     table(["Column", "Meaning"], [
         [ui("PID") + ", " + ui("User"), "The process and its owner."],
         [ui("DEV"), "The number of the card the process uses (0, 1…)."],

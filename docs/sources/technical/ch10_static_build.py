@@ -58,12 +58,12 @@ S4 = p("Static linking with musl removes some conveniences a dynamic program tak
 
 S5 = p("Of the three GPU makers, AMD and Intel publish their counters in the kernel, in sysfs and in each process's " + c("fdinfo") + ". NVIDIA's proprietary driver "
        "does not; its numbers come from NVML, the NVIDIA management library, a closed-source shared library installed with the driver. A program uses it by loading it "
-       "at run time. A static musl executable has no dynamic loader, so it cannot load a library built for glibc.", lead=True) + \
+       "at run time. A static musl executable has no dynamic loader, so it cannot load a library built for glibc. For this reason ngtop reads NVIDIA cards through the " + c("nvidia-smi") + " program.", lead=True) + \
     table(["Choice", "Consequence"], [
-        ["Do not use NVML in version 1.0", "NVIDIA cards are <b>detected</b> (name, driver) and appear with the state “unsupported”; no figure is shown"],
-        ["Keep the single static file", "The promise “copy it anywhere, it runs” is worth more than one maker's counters in this version"],
-        ["Open for the future", "NVIDIA support through NVML is on the list of future work. How to reconcile it with a static executable is still open"],
-    ], "«TAB» — Why NVIDIA is not read") + \
+        ["Do not use NVML", "A binding to NVML (or any crate that loads it) would add a dynamic dependency and break the single static file"],
+        ["Run nvidia-smi", "The tool installed with the driver is a normal program: ngtop starts it and reads its text output, like " + c("ssh") + " or " + c("journalctl") + ". It also works on a remote machine"],
+        ["Cost", "A process is started every ~2 s, in a separate thread, with a 3 s timeout; if the program is missing the card is only listed (" + c("NoTool") + ")"],
+    ], "«TAB» — How NVIDIA is read without NVML") + \
     warn("Anything that would bring a dynamic dependency back — an NVML binding, a crate that links a system library, a call to a tool that is not installed everywhere — "
          "goes against the central promise. Discuss it before writing it.", "The promise.")
 

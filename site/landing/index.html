@@ -133,7 +133,7 @@ footer a:hover{color:var(--ink)}
    <a class="pill" href="download/ngtop" download>Download</a>
   </nav>
   <div class="c" id="top">
-   <span class="badge">Version 1.6.0 · now with actions on remote machines</span>
+   <span class="badge">Version 1.7.0-rc1 · NVIDIA support (release candidate)</span>
    <h1>Your Linux machine, at a glance.</h1>
    <p class="sub">ngtop is a system monitor for the terminal: btop + nvtop + the Windows Task Manager, in one tool. One static binary, nothing to install.</p>
    <div class="btns"><a class="pill" href="download/ngtop" download><svg class="i"><use href="#i-dl"/></svg>Download ngtop</a><a class="pill ghost" href="User%20Manual.html">Read the manual</a></div>
@@ -167,7 +167,7 @@ footer a:hover{color:var(--ink)}
   <p class="lead">Five sections, one keystroke apart: Overview, GPU, Processes, Network &amp; Disks, Services.</p>
   <div class="fgrid">
    <div class="card"><div class="ic"><svg class="i"><use href="#i-cpu"/></svg></div><h3>Overview</h3><p>Braille CPU graph and every core, memory, swap and zram, GPU, mirrored network graph, disks and a process list with GPU% and VRAM.</p></div>
-   <div class="card"><div class="ic"><svg class="i"><use href="#i-gpu"/></svg></div><h3>GPU</h3><p>AMD (amdgpu) and Intel (i915, xe): per-process use and VRAM, engines, clocks, temperatures, fan, power, PCIe. Never wakes a sleeping discrete GPU.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-gpu"/></svg></div><h3>GPU</h3><p>AMD (amdgpu), Intel (i915, xe) and NVIDIA (proprietary driver, through nvidia-smi): per-process use and VRAM, engines, clocks, temperatures, fan, power, PCIe. Never wakes a sleeping discrete GPU.</p></div>
    <div class="card"><div class="ic"><svg class="i"><use href="#i-list"/></svg></div><h3>Processes</h3><p>A tree with folding, and details: threads, open files, sockets, environment, limits, cgroup. Signals and nice, always with confirmation.</p></div>
    <div class="card"><div class="ic"><svg class="i"><use href="#i-net"/></svg></div><h3>Network &amp; Disks</h3><p>Interfaces, connections with the process that owns them, disk IOPS, latency, queue and temperature. A hung NFS mount never freezes the screen.</p></div>
    <div class="card"><div class="ic"><svg class="i"><use href="#i-srv"/></svg></div><h3>Services</h3><p>systemd units: start, stop, restart, enable with confirmation (polkit asks the password), the journal of each unit, boot time and the slowest units.</p></div>
@@ -214,11 +214,11 @@ footer a:hover{color:var(--ink)}
  <div class="wrap">
   <span class="eyebrow">Documentation</span>
   <h2>Two manuals, and the reasons behind them</h2>
-  <p class="lead">Written for ngtop 1.6.0, with real screens of the program. One HTML page each: they work offline too.</p>
+  <p class="lead">Written for ngtop 1.7.0-rc1, with real screens of the program. One HTML page each: they work offline too.</p>
   <div class="fgrid">
    <a class="card" href="User%20Manual.html" style="color:inherit;text-decoration:none"><div class="ic"><svg class="i"><use href="#i-list"/></svg></div><h3>User Manual →</h3><p>Everything about using ngtop: the screen, the five sections, signals, services, configuration, permissions, troubleshooting and every key.</p></a>
    <a class="card" href="Technical%20Manual.html" style="color:inherit;text-decoration:none"><div class="ic"><svg class="i"><use href="#i-term"/></svg></div><h3>Technical Manual →</h3><p>How ngtop is built: architecture, where every number comes from, the interface, safety, performance, the static build, testing and extending it.</p></a>
-   <a class="card" href="decisions.html" style="color:inherit;text-decoration:none"><div class="ic"><svg class="i"><use href="#i-key"/></svg></div><h3>Design decisions →</h3><p>Why ngtop is the way it is: one static binary, no NVIDIA library yet, safe signals, a GPU left asleep, and the history of the project.</p></a>
+   <a class="card" href="decisions.html" style="color:inherit;text-decoration:none"><div class="ic"><svg class="i"><use href="#i-key"/></svg></div><h3>Design decisions →</h3><p>Why ngtop is the way it is: one static binary, NVIDIA through nvidia-smi, not a library, safe signals, a GPU left asleep, and the history of the project.</p></a>
   </div>
  </div>
 </section>
@@ -230,7 +230,7 @@ footer a:hover{color:var(--ink)}
    <h2>Download. chmod. Run.</h2>
    <p class="lead">One file, nothing to install. Download it, make it executable, run it.</p>
    <div class="cmd"><i>$</i> curl -LO https://ngtop.nicfio.it/download/ngtop &amp;&amp; chmod +x ngtop &amp;&amp; ./ngtop</div><br>
-   <a class="pill" href="download/ngtop" download><svg class="i"><use href="#i-dl"/></svg>Download ngtop 1.6.0</a>
+   <a class="pill" href="download/ngtop" download><svg class="i"><use href="#i-dl"/></svg>Download ngtop 1.7.0-rc1</a>
    <div class="facts"><span>Linux x86_64</span><span>@SIZE@</span><span>SHA-256 <code class="sha">@SHA256@</code></span><span><a href="download/SHA256SUMS">Verify: SHA256SUMS</a></span><span>No dependencies</span><span>Config: ~/.config/ngtop/config.toml</span><span>ngtop --dump: text summary</span></div>
   </div>
   <p class="tested"><b>Tested on</b> Ubuntu 24.04 · Debian 12 · Debian 10 · Fedora 41 · Arch Linux · Alpine 3.20 · openSUSE Tumbleweed · CentOS 7</p>
@@ -242,7 +242,7 @@ footer a:hover{color:var(--ink)}
  <div class="wrap">
   <span class="logo"><svg><use href="#logo"/></svg>ngtop</span>
   <a href="#features">Features</a><a href="#screens">Screens</a><a href="#download">Get it</a><a href="User%20Manual.html">User manual</a><a href="Technical%20Manual.html">Technical manual</a><a href="decisions.html">Design decisions</a><a href="licence.html">Licence</a>
-  <span>ngtop 1.6.0 · October 2026 · by nic-fio</span>
+  <span>ngtop 1.7.0-rc1 · October 2026 · by nic-fio</span>
  </div>
 </footer>
 
