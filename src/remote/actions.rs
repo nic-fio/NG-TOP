@@ -158,6 +158,10 @@ impl ProcActions for RemoteActions {
         }
     }
 
+    fn generation(&self) -> u64 {
+        self.sh.generation()
+    }
+
     fn protected(&self, pid: u32) -> Option<&'static str> {
         if pid == 1 {
             Some("PID 1 (init)")

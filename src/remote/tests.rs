@@ -972,9 +972,33 @@ impl SudoFinto {
 mode=$(cat {d}/mode)
 prompt=
 while [ $# -gt 0 ]; do case $1 in -S|-k) shift;; -p) prompt=$2; shift 2;; *) break;; esac; done
+# esegue il comando copiando lo stdin in un file: la prima riga deve essere l'inizio dello script, mai la password
+run() {{
+  tee {d}/stdin | "$@"
+}}
 case $mode in
   nopw) exec "$@" ;;
   err:*) echo "${{mode#err:}}" >&2; exit 1 ;;
+  # NOPASSWD, ma stampa su stderr la riga di comando che CONTIENE il prompt (non intera, non terminata)
+  echoprompt) printf '+ env LC_ALL=C sudo -S -k -p %s' "$prompt" >&2; sleep 1; run "$@"; exit $? ;;
+  # chiede qualcosa che non e' il nostro prompt
+  unknown) printf 'Verification code:' >&2; sleep 8; exit 1 ;;
+  # il prompt arriva in due pezzi, con una pausa
+  pwsplit)
+    p1=${{prompt%??}}; p2=${{prompt#"$p1"}}
+    printf '%s' "$p1" >&2; sleep 1; printf '%s' "$p2" >&2
+    IFS= read -r pw
+    if [ "$pw" = giusta ]; then run "$@"; exit $?; fi
+    exit 1 ;;
+  # legge la password e la ripete su stderr come farebbe una shell che la esegue
+  echopw)
+    printf '%s' "$prompt" >&2
+    IFS= read -r pw
+    echo "sh: 1: $pw: not found" >&2
+    if [ "$pw" = giusta ]; then run "$@"; exit $?; fi
+    echo "Sorry, try again." >&2
+    printf '%s' "$prompt" >&2
+    sleep 1; exit 1 ;;
 esac
 printf '%s' "$prompt" >&2
 IFS= read -r pw
@@ -1009,6 +1033,11 @@ exit 1
             compress: false,
             sudo: mode,
         }
+    }
+    /// Prima riga di stdin vista dalla shell avviata da sudo (se è arrivata).
+    fn prima_riga(&self) -> String {
+        let t = std::fs::read_to_string(self.dir.join("stdin")).unwrap_or_default();
+        t.lines().next().unwrap_or("").to_string()
     }
     fn lette(&self) -> String {
         std::fs::read_to_string(self.dir.join("leak")).unwrap_or_default()
@@ -1212,4 +1241,96 @@ fn caduta_durante_un_azione_esito_sconosciuto() {
     let r = act.set_nice(c.pid(), s, 3);
     assert!(r.is_err());
     assert!(c.vivo());
+}
+
+fn tail_di(s: &session::Session) -> String {
+    String::from_utf8_lossy(&s.stderr_tail.lock().unwrap()).into_owned()
+}
+
+/// La shell che esegue la riga della password la stampa su stderr: dopo l'invio nessun testo del server
+/// resta in stderr_tail, negli errori e negli stati.
+#[test]
+fn password_ripetuta_dallo_stderr_non_resta_da_nessuna_parte() {
+    let f = SudoFinto::nuovo("sudo-echopw", "echopw");
+    let mut s = session::Session::start(&f.transport(Some("giusta")), false).unwrap();
+    assert!(s.exchange(b"j 1\n", Duration::from_secs(5)).is_ok());
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!tail_di(&s).contains("giusta"), "{}", tail_di(&s));
+    assert!(f.prima_riga().starts_with("NG="), "{}", f.prima_riga());
+    // password sbagliata: l'errore non la contiene
+    let e = session::Session::start(&f.transport(Some("sbagliata")), false)
+        .err()
+        .expect("errore");
+    assert_eq!(e.to_string(), "sudo: wrong password");
+    // e nemmeno gli stati dopo una riconnessione
+    let (src, _) = source::open(f.transport(Some("giusta")), "h".into()).unwrap();
+    // l'agente si uccide da solo: la sessione cade (la catena di processi del sudo finto non risponde a kill)
+    let _ = src
+        .shared()
+        .request(b"kill -9 $$\n", Duration::from_secs(5), None);
+    f.modo("err:sudo: sorry, you must have a tty to run sudo");
+    let act = actions_for(&src);
+    let t0 = Instant::now();
+    loop {
+        let _ = act.live_starts(&[1]);
+        let st = format!("{:?}", src.remote_status().unwrap().state);
+        assert!(!st.contains("giusta"), "{st}");
+        if matches!(src.remote_status().unwrap().state, RemoteState::Failed(_)) {
+            break;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "non Failed");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Il prompt vale solo come riga intera: lo stesso testo in fondo a una riga più lunga (eco della riga di
+/// comando) non fa partire la password.
+#[test]
+fn prompt_dentro_una_riga_piu_lunga_non_riceve_la_password() {
+    let f = SudoFinto::nuovo("sudo-echoprompt", "echoprompt");
+    let mut s = session::Session::start(&f.transport(Some("giusta")), false).unwrap();
+    assert!(s.exchange(b"j 1\n", Duration::from_secs(5)).is_ok());
+    assert!(f.prima_riga().starts_with("NG="), "{}", f.prima_riga());
+}
+
+/// Il prompt scritto in due pezzi con una pausa viene riconosciuto (e la password parte una volta sola).
+#[test]
+fn prompt_in_due_pezzi_riconosciuto() {
+    let f = SudoFinto::nuovo("sudo-split", "pwsplit");
+    let mut s = session::Session::start(&f.transport(Some("giusta")), false).unwrap();
+    assert!(s.exchange(b"j 1\n", Duration::from_secs(5)).is_ok());
+    assert!(f.prima_riga().starts_with("NG="), "{}", f.prima_riga());
+}
+
+/// Sudo chiede altro (non il nostro prompt): errore chiaro dopo pochi secondi, password mai mandata.
+#[test]
+fn prompt_sconosciuto_di_sudo_ferma_la_connessione() {
+    let f = SudoFinto::nuovo("sudo-unknown", "unknown");
+    let t0 = Instant::now();
+    let e = session::Session::start(&f.transport(Some("giusta")), false)
+        .err()
+        .expect("errore");
+    assert_eq!(
+        e.to_string(),
+        "sudo asked for something ngtop does not recognise: Verification code:"
+    );
+    assert!(t0.elapsed() < Duration::from_secs(7), "{:?}", t0.elapsed());
+    assert_eq!(f.prima_riga(), "");
+}
+
+#[test]
+fn generazione_letta_dalla_sessione_corrente() {
+    let (src, _) = connect_local_sh().unwrap();
+    let act = actions_for(&src);
+    let g0 = act.generation();
+    assert!(g0 > 0);
+    assert_eq!(g0, src.remote_status().unwrap().generation);
+    src.kill_session_for_test();
+    let t0 = Instant::now();
+    while act.generation() == g0 || act.generation() == 0 {
+        let _ = act.live_starts(&[1]);
+        assert!(t0.elapsed() < Duration::from_secs(10), "mai riconnesso");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(act.generation() > g0);
 }

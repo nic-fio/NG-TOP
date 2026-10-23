@@ -59,18 +59,45 @@ fn write_exec(p: &Path, text: &str) {
     std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
+/// Comandi finti condivisi, scritti UNA volta e provati con un'esecuzione (ritentando su ETXTBSY: un figlio
+/// forkato da un altro test può tenere ancora aperto il descrittore di scrittura). Le cartelle dei test
+/// contengono solo link simbolici a file già eseguibili senza scrittori.
+fn shared_tools() -> &'static Path {
+    static TOOLS: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    TOOLS.get_or_init(|| {
+        let d = std::env::temp_dir().join(format!("ngtop-hostile-tools-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for tool in ["systemctl", "journalctl", "loginctl", "renice"] {
+            let p = d.join(tool);
+            write_exec(
+                &p,
+                &format!(
+                    "#!/bin/sh\n[ \"$1\" = --ngtop-probe ] && exit 0\nD=$(dirname \"$0\")\n{{ printf '%s\\0' {tool}; for a in \"$@\"; do printf '%s\\0' \"$a\"; done; printf '\\0'; }} >> \"$D/../calls.log\"\nexit 0\n"
+                ),
+            );
+            let t0 = Instant::now();
+            loop {
+                match Command::new(&p).arg("--ngtop-probe").status() {
+                    Ok(_) => break,
+                    Err(e) if e.raw_os_error() == Some(26) && t0.elapsed() < Duration::from_secs(20) => {
+                        sleep(Duration::from_millis(20));
+                    }
+                    Err(e) => panic!("cannot run fake {tool}: {e}"),
+                }
+            }
+        }
+        d
+    })
+}
+
 /// Cartella con l'"ssh" finto e i comandi finti (`systemctl`, `journalctl`, `loginctl`, `renice`) che
 /// registrano gli argomenti in `calls.log` (ogni argomento seguito da NUL, ogni chiamata da un NUL in più).
 fn setup(name: &str) -> PathBuf {
     let d = tmpdir(name);
-    write_exec(&d.join("ssh"), SERVER);
+    std::fs::write(d.join("ssh"), SERVER).unwrap();
     for tool in ["systemctl", "journalctl", "loginctl", "renice"] {
-        write_exec(
-            &d.join("bin").join(tool),
-            &format!(
-                "#!/bin/sh\nD=$(dirname \"$0\")\n{{ printf '%s\\0' {tool}; for a in \"$@\"; do printf '%s\\0' \"$a\"; done; printf '\\0'; }} >> \"$D/../calls.log\"\nexit 0\n"
-            ),
-        );
+        std::os::unix::fs::symlink(shared_tools().join(tool), d.join("bin").join(tool)).unwrap();
     }
     d
 }
@@ -123,7 +150,11 @@ impl Host {
 fn try_host(name: &str, scenario: &str, param: &str) -> std::io::Result<Host> {
     let dir = setup(name);
     let log = dir.join("log");
-    let cmd = format!("{}/ssh {scenario} {} {param}", dir.display(), log.display());
+    let cmd = format!(
+        "sh {}/ssh {scenario} {} {param}",
+        dir.display(),
+        log.display()
+    );
     let (src, run) = connect_cmd(&cmd, false)?;
     let act = actions_for(&src);
     Ok(Host {
@@ -515,7 +546,7 @@ fn fuzz_process_inputs_hit_only_matching_start_times() {
     let mut a = Sleeper::new();
     let mut b = Sleeper::new();
     let (pa, sa) = (a.pid(), a.start());
-    let (pb, _sb) = (b.pid(), b.start());
+    let (pb, sb) = (b.pid(), b.start());
     let dead = {
         let mut c = Sleeper::new();
         let p = c.pid();
@@ -549,10 +580,15 @@ fn fuzz_process_inputs_hit_only_matching_start_times() {
     let sigs = [i32::MIN, -1, 0, 1, 2, 9, 15, 19, 63, 64, 65, 1000, i32::MAX];
     let nices = [i32::MIN, -21, -20, -1, 0, 5, 19, 20, i32::MAX];
     let act = h.act.clone();
+    let real = [(pa, sa), (pb, sb)];
     let res = within(240, "process fuzz", move || {
         let mut ok_hits = Vec::new();
         for &p in &pids {
             for &s in &starts {
+                // mai l'avvio vero di questo pid (con wrapping ±1 può coincidere con quello dell'altro sleep)
+                if real.contains(&(p, s)) {
+                    continue;
+                }
                 for &sig in &sigs {
                     let r = act.signal(&[(p, s)], sig);
                     assert_eq!(r.len(), 1);
@@ -836,12 +872,12 @@ fn outer_sudo(name: &str, limit: u64) {
 
 fn inner_dir() -> Option<PathBuf> {
     let d = PathBuf::from(std::env::var("NGTOP_HOSTILE_DIR").ok()?);
-    write_exec(&d.join("ssh"), SERVER);
+    std::fs::write(d.join("ssh"), SERVER).unwrap();
     Some(d)
 }
 
 fn sudo_cmd(d: &Path, sc: &str) -> String {
-    format!("{}/ssh {sc} {} -", d.display(), d.join("log").display())
+    format!("sh {}/ssh {sc} {} -", d.display(), d.join("log").display())
 }
 
 fn read(d: &Path, ext: &str) -> String {

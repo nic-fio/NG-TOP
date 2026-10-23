@@ -32,6 +32,11 @@ pub trait ProcActions: Send + Sync {
     fn set_nice(&self, pid: u32, expect: u64, nice: i32) -> Result<(), String>;
     /// Perché `pid` non va colpito alla leggera (PID 1, ngtop stesso o la sua sessione sul server).
     fn protected(&self, pid: u32) -> Option<&'static str>;
+    /// Sessione corrente sul server (`RemoteStatus::generation`), letta al momento: un'azione
+    /// preparata in un'altra sessione non va inviata. 0 per le azioni locali.
+    fn generation(&self) -> u64 {
+        0
+    }
 }
 
 /// Azioni sulla macchina locale; `proc` è la radice di /proc (fixture nei test).

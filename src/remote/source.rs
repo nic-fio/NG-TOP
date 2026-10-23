@@ -238,7 +238,8 @@ pub(super) fn open(
     tr: Transport,
     target: String,
 ) -> io::Result<(Arc<RemoteSource>, Arc<RemoteRunner>)> {
-    let sess = Session::start(&tr, true)?;
+    let mut sess = Session::start(&tr, true)?;
+    sess.generation = 1;
     let (page_size, clock_ticks) = (sess.page_size, sess.clock_ticks);
     let (root, uid, self_pids) = (sess.uid == Some(0), sess.uid, sess.self_pids.clone());
     let sh = Arc::new(Shared {
@@ -270,6 +271,11 @@ pub(super) fn open(
 }
 
 impl Shared {
+    /// Generazione della sessione corrente, letta sotto il lock di sessione (0 = nessuna sessione).
+    pub(super) fn generation(&self) -> u64 {
+        lock(&self.sess).as_ref().map_or(0, |s| s.generation)
+    }
+
     /// Pid della sessione ngtop sul server (lo script e i suoi antenati).
     pub(super) fn self_pids(&self) -> Vec<u32> {
         lock(&self.status).self_pids.clone()
@@ -352,7 +358,7 @@ impl Shared {
                 std::thread::sleep(wait);
                 let Some(sh) = weak.upgrade() else { return };
                 match Session::start(&sh.transport, false) {
-                    Ok(s) => {
+                    Ok(mut s) => {
                         {
                             let mut st = lock(&sh.status);
                             st.page_size = Some(s.page_size);
@@ -360,6 +366,7 @@ impl Shared {
                             st.root = s.uid == Some(0);
                             st.uid = s.uid;
                             st.generation += 1;
+                            s.generation = st.generation;
                             st.self_pids = s.self_pids.clone();
                         }
                         *lock(&sh.sess) = Some(s);

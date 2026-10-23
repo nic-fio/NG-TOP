@@ -205,8 +205,6 @@ pub struct Servizi {
     remote: Option<RemoteCtx>,
     /// Macchina remota per le finestre di conferma: (destinazione, esegue come root).
     pub machine: Option<(String, bool)>,
-    /// Numero della connessione remota corrente (aggiornato dall'app).
-    pub generation: u64,
 }
 
 impl Default for Servizi {
@@ -272,7 +270,6 @@ impl Servizi {
             blame_asked: false,
             remote: None,
             machine: None,
-            generation: 0,
         }
     }
 
@@ -295,6 +292,14 @@ impl Servizi {
         old(self.units_pending, self.last_units)
             || old(self.detail_pending.is_some(), self.last_detail)
             || old(self.journal_pending.is_some(), self.last_journal)
+    }
+
+    /// Sessione corrente sul server, letta dal vivo dalla sorgente (0 in locale).
+    fn live_generation(&self) -> u64 {
+        self.remote
+            .as_ref()
+            .and_then(|(src, ..)| src.remote_status())
+            .map_or(0, |s| s.generation)
     }
 
     fn send(&self, r: Request) {
@@ -442,7 +447,7 @@ impl Servizi {
                 unit: u.info.name.clone(),
                 action,
                 button: 0,
-                generation: self.generation,
+                generation: self.live_generation(),
             });
         }
     }
@@ -457,7 +462,10 @@ impl Servizi {
                 KeyCode::Enter => {
                     let c = c.clone();
                     self.confirm = None;
-                    if c.button == 1 && self.remote.is_some() && c.generation != self.generation {
+                    if c.button == 1
+                        && self.remote.is_some()
+                        && c.generation != self.live_generation()
+                    {
                         self.set_status(
                             "the connection changed since the confirmation: nothing done".into(),
                             false,
@@ -886,6 +894,72 @@ mod tests {
             ..Default::default()
         })
         .collect()
+    }
+
+    /// Sorgente remota finta con sessione modificabile.
+    struct GenSource(std::sync::atomic::AtomicU64);
+
+    impl Source for GenSource {
+        fn read(&self, p: &std::path::Path) -> std::io::Result<Vec<u8>> {
+            crate::source::LocalSource.read(p)
+        }
+        fn read_dir(&self, p: &std::path::Path) -> std::io::Result<Vec<std::ffi::OsString>> {
+            crate::source::LocalSource.read_dir(p)
+        }
+        fn read_link(&self, p: &std::path::Path) -> std::io::Result<PathBuf> {
+            crate::source::LocalSource.read_link(p)
+        }
+        fn owner_uid(&self, p: &std::path::Path) -> std::io::Result<u32> {
+            crate::source::LocalSource.owner_uid(p)
+        }
+        fn statvfs(&self, m: &std::path::Path) -> std::io::Result<crate::source::FsStat> {
+            crate::source::LocalSource.statvfs(m)
+        }
+        fn remote_status(&self) -> Option<crate::source::RemoteStatus> {
+            Some(crate::source::RemoteStatus {
+                target: "alex@server".into(),
+                hostname: None,
+                latency_ms: None,
+                last_bytes: 0,
+                root: true,
+                generation: self.0.load(std::sync::atomic::Ordering::SeqCst),
+                uid: Some(0),
+                state: crate::source::RemoteState::Connected,
+            })
+        }
+    }
+
+    #[test]
+    fn conferma_rifiutata_se_la_sessione_cambia() {
+        let src = Arc::new(GenSource(std::sync::atomic::AtomicU64::new(3)));
+        let mut s = Servizi::remote(src.clone(), Arc::new(crate::source::LocalRunner), 1);
+        s.confirm = Some(Confirm {
+            unit: "a.service".into(),
+            action: Action::Stop,
+            button: 1,
+            generation: s.live_generation(),
+        });
+        assert_eq!(s.live_generation(), 3);
+        // riconnessione mentre la conferma è aperta
+        src.0.store(4, std::sync::atomic::Ordering::SeqCst);
+        s.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(s.confirm.is_none());
+        assert!(!s.action_pending, "azione inviata con sessione cambiata");
+        let st = s.status.as_ref().unwrap();
+        assert!(
+            !st.ok && st.text.contains("connection changed"),
+            "{}",
+            st.text
+        );
+        // stessa sessione: parte
+        s.confirm = Some(Confirm {
+            unit: "a.service".into(),
+            action: Action::Stop,
+            button: 1,
+            generation: 4,
+        });
+        s.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(s.action_pending);
     }
 
     #[test]

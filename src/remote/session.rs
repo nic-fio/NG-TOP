@@ -22,6 +22,8 @@ use super::sudo::{self, SudoMode, Verdict, wipe};
 
 /// Tetti di memoria sui dati ricevuti da un server non fidato.
 const MAX_BEFORE_READY: usize = 1 << 20;
+/// Dopo quanto una riga di stderr non terminata e ferma è considerata un prompt sconosciuto.
+const UNKNOWN_PROMPT_AFTER: Duration = Duration::from_secs(3);
 const MAX_RESPONSE: usize = 128 << 20;
 
 pub(crate) const AGENT: &str = include_str!("agent.sh");
@@ -96,6 +98,8 @@ struct Handshake<'a> {
     slot: &'a sudo::PwSlot,
     target: &'a Target,
     prompts: &'a AtomicUsize,
+    prompt: &'a str,
+    partial: &'a Mutex<(Vec<u8>, Instant)>,
     scrub: &'a AtomicBool,
     interactive: bool,
 }
@@ -228,6 +232,8 @@ pub(crate) struct Session {
     /// uid dello script sul server (0 = root) e catena dei suoi antenati fino a PID 1 escluso.
     pub uid: Option<u32>,
     pub self_pids: Vec<u32>,
+    /// Numero di questa sessione (lo assegna chi la installa: `source.rs`).
+    pub generation: u64,
     /// sudo attivo su questa sessione.
     sudo: bool,
     pub stderr_tail: Arc<Mutex<Vec<u8>>>,
@@ -326,10 +332,12 @@ impl Session {
         let stderr_tail = Arc::new(Mutex::new(Vec::new()));
         // quante volte sudo ha mostrato il prompt (a inizio riga, completo) e se la password è già partita
         let prompts = Arc::new(AtomicUsize::new(0));
+        // riga di stderr non terminata e quando è cambiata l'ultima volta (per un prompt che non è il nostro)
+        let partial = Arc::new(Mutex::new((Vec::new(), Instant::now())));
         let scrub = Arc::new(AtomicBool::new(false));
         {
             let (pt, tail) = (passthrough.clone(), stderr_tail.clone());
-            let (prompts, scrub) = (prompts.clone(), scrub.clone());
+            let (prompts, scrub, partial) = (prompts.clone(), scrub.clone(), partial.clone());
             let want = sudo_mode.as_ref().map(|_| prompt.clone().into_bytes());
             std::thread::spawn(move || {
                 let mut b = [0u8; 1024];
@@ -358,6 +366,8 @@ impl Session {
                             line.clear();
                         }
                     }
+                    *partial.lock().unwrap_or_else(|e| e.into_inner()) =
+                        (line.clone(), Instant::now());
                 }
                 keep(&tail, &line, scrub.load(Ordering::SeqCst));
             });
@@ -405,6 +415,7 @@ impl Session {
             clock_ticks: 100,
             uid: None,
             self_pids: Vec::new(),
+            generation: 0,
             sudo: sudo_mode.is_some(),
             stderr_tail,
             bytes_in,
@@ -418,6 +429,8 @@ impl Session {
                 slot,
                 target,
                 prompts: &prompts,
+                prompt: &prompt,
+                partial: &partial,
                 scrub: &scrub,
                 interactive,
             };
@@ -549,6 +562,25 @@ impl Session {
             }
             if let Some(v) = sudo::classify(&self.tail_text()) {
                 return Err(io::Error::other(v.text()));
+            }
+            // sudo chiede qualcosa che non è il nostro prompt (PAM "Verification code:", sudo-rs senza -p):
+            // una riga non terminata che resta ferma. Qui non esiste ancora nessun segreto; la password non parte.
+            if sent.is_none() {
+                let (l, t) = h.partial.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                if !l.is_empty()
+                    && !h.prompt.as_bytes().starts_with(&l)
+                    && t.elapsed() >= UNKNOWN_PROMPT_AFTER
+                {
+                    return Err(io::Error::other(format!(
+                        "sudo asked for something ngtop does not recognise: {}",
+                        clean(
+                            &String::from_utf8_lossy(&l)
+                                .chars()
+                                .take(80)
+                                .collect::<String>()
+                        )
+                    )));
+                }
             }
             if Instant::now() >= deadline {
                 return Err(if sent.is_some() {

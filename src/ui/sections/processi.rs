@@ -189,7 +189,7 @@ pub struct SignalDialog {
     pub prot: Vec<(u32, &'static str)>,
     /// Macchina remota su cui si agisce (destinazione), se non è questa.
     pub machine: Option<String>,
-    /// Connessione remota all'apertura (0 in locale).
+    /// Sessione sul server all'apertura (`ProcActions::generation`; 0 in locale).
     pub generation: u64,
 }
 
@@ -201,8 +201,6 @@ pub struct Origin<'a> {
     pub target: &'a str,
     /// Uid con cui si agisce sul server, se noto (ignoto: ogni processo conta come di altri).
     pub uid: Option<u32>,
-    /// Numero della connessione all'apertura: se cambia, l'invio è rifiutato.
-    pub generation: u64,
 }
 
 impl SignalDialog {
@@ -245,7 +243,7 @@ impl SignalDialog {
             armed: false,
             prot,
             machine: origin.map(|o| o.target.to_string()),
-            generation: origin.map_or(0, |o| o.generation),
+            generation: act.generation(),
         }
     }
 
@@ -382,7 +380,6 @@ fn dialog_for(app: &App, p: &Process) -> SignalDialog {
     let origin = app.remote.then(|| Origin {
         target: &app.remote_target,
         uid: app.remote_uid,
-        generation: app.remote_generation,
     });
     SignalDialog::new(p, &app.rows, &*app.proc.act, origin.as_ref())
 }
@@ -437,7 +434,8 @@ fn name_of(rows: &[Process], pid: u32) -> String {
 /// processi (pid + avvio); riassume l'esito nella riga di stato.
 fn send_dialog(app: &mut App, d: &SignalDialog) {
     // Riconnessione (o server riavviato) dopo l'apertura: pid e protezioni non valgono più.
-    if app.remote && d.generation != app.remote_generation {
+    // Sessione letta dal vivo: nessun ritardo di aggiornamento.
+    if d.generation != app.proc.act.generation() {
         app.proc.set_status(
             "the connection changed since the dialog was opened: nothing sent".into(),
             false,
@@ -1416,6 +1414,10 @@ pub struct FakeActions {
     pub nice_err: Option<String>,
     /// Errore per ogni segnale (prevale su `fail_pid`).
     pub sig_err: Option<String>,
+    /// Sessione corrente (`ProcActions::generation`).
+    pub session: std::sync::atomic::AtomicU64,
+    /// Pid che diventano protetti solo dopo `protect_now`.
+    pub late_prot: std::sync::Mutex<Vec<u32>>,
     pub starts_calls: std::sync::atomic::AtomicUsize,
     pub signal_calls: std::sync::atomic::AtomicUsize,
 }
@@ -1454,7 +1456,13 @@ impl ProcActions for FakeActions {
         Ok(())
     }
     fn protected(&self, pid: u32) -> Option<&'static str> {
+        if self.late_prot.lock().unwrap().contains(&pid) {
+            return Some("a late-protected process");
+        }
         crate::source::actions::protected(pid)
+    }
+    fn generation(&self) -> u64 {
+        self.session.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -1856,7 +1864,6 @@ mod tests {
         a.remote = true;
         a.remote_target = target.into();
         a.remote_uid = uid;
-        a.remote_generation = 5;
         let (f, act) = fake(FakeActions::default());
         a.proc.act = act;
         (a, f)
@@ -1897,7 +1904,7 @@ mod tests {
         let (mut a, f) = remoto_app(Some(1000), "alex@server");
         select_pid(&mut a, 11);
         a.on_key(key(KeyCode::F(9)));
-        a.remote_generation = 6; // riconnessione mentre il dialogo è aperto
+        f.session.store(6, Ordering::SeqCst); // riconnessione mentre il dialogo è aperto
         a.on_key(key(KeyCode::Enter));
         assert!(a.dialog.is_none());
         assert!(f.sent.lock().unwrap().is_empty());
@@ -1926,6 +1933,45 @@ mod tests {
         assert!(!a.proc.status_text().unwrap().1);
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    #[test]
+    fn app_nuova_senza_azioni_rifiuta_segnali_e_nice() {
+        let mut a = App::new((120, 40), "h".into());
+        a.set_processes(rows());
+        select_pid(&mut a, 11);
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Enter));
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(!ok, "{t}");
+        // radice non viva per NoActions o rifiuto: in ogni caso nessun invio riuscito
+        assert!(!t.contains("sent to"), "{t}");
+        change_nice(&mut a, 1);
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(
+            !ok && t.contains(crate::source::actions::NO_ACTIONS_MSG),
+            "{t}"
+        );
+        assert_eq!(
+            a.proc.act.signal(&[(11, 0)], 15),
+            vec![Err(crate::source::actions::NO_ACTIONS_MSG.to_string())]
+        );
+    }
+
+    #[test]
+    fn pid_protetto_dopo_l_apertura_non_viene_colpito() {
+        let (mut a, f) = remoto_app(Some(1000), "alex@server");
+        select_pid(&mut a, 10);
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Char(' ')));
+        // dopo l'apertura il 11 diventa protetto (es. la sessione del server)
+        f.late_prot.lock().unwrap().push(11);
+        a.on_key(key(KeyCode::Enter));
+        if a.dialog.is_some() {
+            a.on_key(key(KeyCode::Enter));
+        }
+        let pids: Vec<u32> = f.sent.lock().unwrap().iter().map(|x| x.0).collect();
+        assert!(!pids.is_empty() && !pids.contains(&11), "{pids:?}");
     }
 
     #[test]

@@ -141,9 +141,8 @@ pub struct App {
     /// Destinazione remota come l'ha scritta l'utente (vuota in locale) e se i comandi girano da root.
     pub remote_target: String,
     pub remote_root: bool,
-    /// Uid sul server e numero della connessione (cambia a ogni riconnessione).
+    /// Uid sul server.
     pub remote_uid: Option<u32>,
-    pub remote_generation: u64,
     /// Aggiornamenti remoti lenti consecutivi (l'intervallo si allarga solo se persistono).
     slow_streak: u8,
     pub dialog: Option<SignalDialog>,
@@ -208,7 +207,6 @@ impl App {
             remote_target: String::new(),
             remote_root: false,
             remote_uid: None,
-            remote_generation: 0,
             slow_streak: 0,
             left_pct: 40,
             config: crate::config::Config::default(),
@@ -271,8 +269,6 @@ impl App {
             self.remote_target = st.target;
             self.remote_root = st.root;
             self.remote_uid = st.uid;
-            self.remote_generation = st.generation;
-            self.servizi.generation = st.generation;
         }
         self.gpu_pdevs = sys.gpu.devices.iter().map(|g| g.pdev.clone()).collect();
         self.gpu_pids = sys.gpu.procs.iter().map(|p| p.pid).collect();
