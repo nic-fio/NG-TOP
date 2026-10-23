@@ -60,8 +60,8 @@ S5 = p("Of the three GPU makers, AMD and Intel publish their counters in the ker
        "does not; its numbers come from NVML, the NVIDIA management library, a closed-source shared library installed with the driver. A program uses it by loading it "
        "at run time. A static musl executable has no dynamic loader, so it cannot load a library built for glibc.", lead=True) + \
     table(["Choice", "Consequence"], [
-        ["Do not use NVML in version 0.1", "NVIDIA cards are <b>detected</b> (name, driver) and appear with the state “unsupported”; no figure is shown"],
-        ["Keep the single static file", "The promise “copy it anywhere, it runs” is worth more than one maker's counters in the first version"],
+        ["Do not use NVML in version 1.0", "NVIDIA cards are <b>detected</b> (name, driver) and appear with the state “unsupported”; no figure is shown"],
+        ["Keep the single static file", "The promise “copy it anywhere, it runs” is worth more than one maker's counters in this version"],
         ["Open for the future", "NVIDIA support through NVML is on the list of future work. How to reconcile it with a static executable is still open"],
     ], "«TAB» — Why NVIDIA is not read") + \
     warn("Anything that would bring a dynamic dependency back — an NVML binding, a crate that links a system library, a call to a tool that is not installed everywhere — "
