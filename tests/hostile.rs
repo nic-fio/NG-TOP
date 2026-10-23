@@ -63,31 +63,61 @@ fn write_exec(p: &Path, text: &str) {
 /// forkato da un altro test può tenere ancora aperto il descrittore di scrittura). Le cartelle dei test
 /// contengono solo link simbolici a file già eseguibili senza scrittori.
 fn shared_tools() -> &'static Path {
+    use std::os::unix::fs::MetadataExt;
     static TOOLS: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     TOOLS.get_or_init(|| {
-        let d = std::env::temp_dir().join(format!("ngtop-hostile-tools-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
+        // Nome fisso per utente: i file sono sempre identici, quindi si riusano tra le esecuzioni. La cartella
+        // si prepara con un nome privato (0700) e si sposta con rename: se esiste già, si controlla che sia
+        // una cartella vera (non un link), nostra e 0700, altrimenti si rifiuta.
+        let me = std::fs::metadata(std::env::temp_dir()).unwrap();
+        let tmp = std::env::temp_dir().join(format!("ngtop-hostile-tools-new-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir(&tmp).unwrap();
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let uid = std::fs::metadata(&tmp).unwrap().uid();
+        let _ = me;
+        let fixed = std::env::temp_dir().join(format!("ngtop-hostile-tools-{uid}"));
+        let ours = |d: &Path| {
+            std::fs::symlink_metadata(d).is_ok_and(|m| {
+                m.is_dir() && m.uid() == uid && m.mode() & 0o777 == 0o700
+            }) && ["systemctl", "journalctl", "loginctl", "renice"]
+                .iter()
+                .all(|t| std::fs::symlink_metadata(d.join(t)).is_ok_and(|m| m.is_file() && m.uid() == uid))
+        };
+        if !ours(&fixed) {
+            for tool in ["systemctl", "journalctl", "loginctl", "renice"] {
+                let p = tmp.join(tool);
+                write_exec(
+                    &p,
+                    &format!(
+                        "#!/bin/sh\n[ \"$1\" = --ngtop-probe ] && exit 0\nD=$(dirname \"$0\")\n{{ printf '%s\\0' {tool}; for a in \"$@\"; do printf '%s\\0' \"$a\"; done; printf '\\0'; }} >> \"$D/../calls.log\"\nexit 0\n"
+                    ),
+                );
+            }
+            // un'altra esecuzione può aver creato la cartella nel frattempo: vince la prima
+            if std::fs::rename(&tmp, &fixed).is_err() {
+                let _ = std::fs::remove_dir_all(&tmp);
+            }
+        } else {
+            let _ = std::fs::remove_dir_all(&tmp);
+        }
+        assert!(ours(&fixed), "unsafe or missing {}", fixed.display());
         for tool in ["systemctl", "journalctl", "loginctl", "renice"] {
-            let p = d.join(tool);
-            write_exec(
-                &p,
-                &format!(
-                    "#!/bin/sh\n[ \"$1\" = --ngtop-probe ] && exit 0\nD=$(dirname \"$0\")\n{{ printf '%s\\0' {tool}; for a in \"$@\"; do printf '%s\\0' \"$a\"; done; printf '\\0'; }} >> \"$D/../calls.log\"\nexit 0\n"
-                ),
-            );
+            let p = fixed.join(tool);
             let t0 = Instant::now();
             loop {
                 match Command::new(&p).arg("--ngtop-probe").status() {
                     Ok(_) => break,
-                    Err(e) if e.raw_os_error() == Some(26) && t0.elapsed() < Duration::from_secs(20) => {
+                    Err(e)
+                        if e.raw_os_error() == Some(26) && t0.elapsed() < Duration::from_secs(20) =>
+                    {
                         sleep(Duration::from_millis(20));
                     }
                     Err(e) => panic!("cannot run fake {tool}: {e}"),
                 }
             }
         }
-        d
+        fixed
     })
 }
 
@@ -127,6 +157,12 @@ struct Host {
     log: PathBuf,
 }
 
+impl Drop for Host {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
 impl Host {
     fn roots(&self) -> Roots {
         Roots::remote(self.src.clone(), self.run.clone())
@@ -155,7 +191,9 @@ fn try_host(name: &str, scenario: &str, param: &str) -> std::io::Result<Host> {
         dir.display(),
         log.display()
     );
-    let (src, run) = connect_cmd(&cmd, false)?;
+    let (src, run) = connect_cmd(&cmd, false).inspect_err(|_| {
+        let _ = std::fs::remove_dir_all(&dir);
+    })?;
     let act = actions_for(&src);
     Ok(Host {
         src,

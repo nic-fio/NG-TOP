@@ -1334,3 +1334,23 @@ fn generazione_letta_dalla_sessione_corrente() {
     }
     assert!(act.generation() > g0);
 }
+
+#[test]
+fn generazione_senza_aspettare_il_lock_di_sessione() {
+    let (src, runner) = connect_local_sh().unwrap();
+    let act = actions_for(&src);
+    let g = act.generation();
+    // un comando lento tiene il lock di sessione
+    let h = std::thread::spawn(move || {
+        let _ = runner.run(&["sleep", "2"], Duration::from_secs(5));
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    let t0 = Instant::now();
+    assert_eq!(act.generation(), g);
+    assert!(
+        t0.elapsed() < Duration::from_millis(100),
+        "{:?}",
+        t0.elapsed()
+    );
+    let _ = h.join();
+}

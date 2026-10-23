@@ -12,6 +12,10 @@ Monitor di sistema da terminale (btop + nvtop + Gestore attività di Windows), d
 - Build statica: `./build.sh` → `dist/ngtop` (target x86_64-unknown-linux-musl, verifica con ldd).
 - Test: `cargo test` · Lint: `cargo clippy --all-targets -- -D warnings` · Formato: `cargo fmt`.
 - Rust è in `~/.cargo/bin` (aggiungerlo al PATH se manca).
+- Suite di sicurezza, da eseguire prima di ogni rilascio:
+  - `cargo test --test hostile`: server ostile, fuzz, sudo finti, cadute;
+  - `NGTOP_BIN=target/debug/ngtop scripts/test-remote.sh --actions`: container podman con utenti sudo e un servizio di prova;
+  - revisione di sicurezza con sabotaggio: ogni correzione annullata deve far fallire un test.
 
 ## Convenzioni
 - Solo dipendenze in Rust puro (niente crate che compilano codice C): l'eseguibile deve restare statico.

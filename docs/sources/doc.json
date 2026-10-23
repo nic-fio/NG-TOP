@@ -95,6 +95,10 @@
    "help": "monitor this machine even if the configuration has 'host'"
   },
   {
+   "flag": "--sudo",
+   "help": "run the commands on the server with sudo (needs a TARGET)"
+  },
+  {
    "flag": "--dump [TARGET]",
    "help": "print a text summary and exit (no interface)"
   }
@@ -368,11 +372,11 @@
     ],
     [
      "u",
-     "system/user"
+     "system/user (this machine only)"
     ],
     [
      "s t r",
-     "start/stop/restart"
+     "start/stop/restart (remote: needs root, see --sudo)"
     ],
     [
      "e",
@@ -428,5 +432,5 @@
    "name": "Services"
   }
  ],
- "version": "1.5.0"
+ "version": "1.6.0"
 }

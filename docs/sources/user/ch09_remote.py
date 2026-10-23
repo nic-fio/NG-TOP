@@ -54,7 +54,7 @@ S_BAR = p("On a remote machine the left side of the tab bar looks like the usual
          "you typed). The tab bar always carries this mark, so you never take a remote screen for your own."],
         [ui("23 ms"), "The <b>latency</b>: the time of one round trip to the server. <b>Green</b> below 50 ms, <b>yellow</b> below 200 ms, <b>red</b> above."],
         [ui("offline"), "In red, instead of the latency: the connection is down (see below)."],
-        [ui("root"), "Shown when the program on the server runs as root, for example with " + c("--sudo") + " (" + rif("Acting as root: --sudo") + ")."],
+        [ui("⇄ server root"), "The word <b>root</b> after the host name: shown when the program on the server runs as root, for example with " + c("--sudo") + " (" + rif("Acting as root: --sudo") + ")."],
         ["The rest", "Uptime and load average are those <b>of the server</b>. The clock is the time of your PC, written in the time zone of the server."],
     ], "«TAB» — The tab bar of a remote session") + \
     p("The help window (" + key("F1") + ") says <code>Help — server</code> in its title.")
@@ -80,7 +80,7 @@ S_ACT = p("Since version 1.6 a remote machine is not only for <b>looking</b>. Th
         ["Change the nice value", key("F7") + ", " + key("F8"), rif("Changing the priority")],
         ["Start, stop, restart, enable and disable a system service", key("s") + " " + key("t") + " " + key("r") + " " + key("e") + " in " + ui("Services"), rif("Starting and stopping")],
     ], "«TAB» — Actions that work on a remote machine") + \
-    p("The confirmation windows <b>name the machine</b>, so you always know where the action goes, for example <code>Send SIGTERM to 1234 on alex@server?</code>. "
+    p("The signal window has a line <code>On: alex@server</code> and the service confirmations name the machine too, so you always know where the action goes. "
       "The status line reports the result as in the local case, in green or in red.") + \
     p("The actions run with the rights of the <b>user you log in as</b> on the server. A normal user can signal only their own processes, and can raise "
       "the nice value of their own processes but not lower it. Services need more: without the right to manage them, ngtop says "
@@ -92,25 +92,30 @@ S_ACT = p("Since version 1.6 a remote machine is not only for <b>looking</b>. Th
 S_SUDO = p("The option " + c("--sudo") + " makes the program on the server run <b>as root</b>, through the <code>sudo</code> of the server. "
            "Then you see every process, with the open files and the I/O of other users too, and you can act on services.", lead=True) + \
     term("""$ ngtop --sudo alex@server
-[sudo] password for alex@server:""") + \
-    p("It needs a target (with " + c("--sudo") + " alone, on this machine, ngtop reports an error). What happens when it starts:") + \
-    steps(["ngtop first tries <code>sudo</code> <b>without a password</b>. It works if the server allows it (<code>NOPASSWD</code> in the sudoers file), and then you are not asked anything.",
-           "Otherwise ngtop asks for the <b>sudo password</b> on the terminal, <b>before</b> the interface opens. What you type is not shown.",
-           "ngtop sends the password <b>once</b>, waits for <code>sudo</code> to confirm, and only then sends its small script.",
-           "If the password is wrong, ngtop exits with <code>sudo: wrong password</code> and the script is never sent."]) + \
+[sudo] password for alex@server: """) + \
+    p("It needs a target: without one ngtop says <code>ngtop: --sudo needs a TARGET</code> (and it cannot be combined with " + c("--local") + "). It uses the <b>same single connection</b> as a normal session. What happens when it starts:") + \
+    steps(["ngtop starts <code>sudo</code> on the server with a prompt of its own, chosen at random. If the server allows <code>sudo</code> without a password (<code>NOPASSWD</code>), sudo never asks and you are not asked anything.",
+           "Otherwise ngtop sees its own prompt and asks for the <b>sudo password</b> on your terminal, <b>before</b> the interface opens. What you type is not shown; <kbd>Backspace</kbd> and <kbd>Ctrl-U</kbd> edit it, <kbd>Ctrl-C</kbd> or <kbd>Ctrl-D</kbd> cancel at once. The prompt is <code>[sudo] password for alex@server:</code> (or <code>[sudo] password for server:</code> when the target has no user).",
+           "ngtop sends the password <b>once</b>, waits for the confirmation of the shell that <code>sudo</code> started, and only then sends its small script.",
+           "If sudo asks again, the password was wrong: ngtop exits with <code>sudo: wrong password</code> and the script is never sent."]) + \
     p("You can write the same choice in the configuration file with " + c("sudo = true") + " (" + rif("Every setting") + "); it applies to " + c("--dump") + " too.") + \
     note("<b>The password stays in the memory of ngtop</b> as long as ngtop is open, so that after a drop of the network it can reconnect by itself, as it does without "
          "sudo (" + rif("Lost connection and reconnection") + "). It is never written to the disk, nor to the configuration file, nor to a log, and it is erased "
-         "when you quit.", "Where the password goes.") + \
-    p("If the server does not allow it, ngtop tells you why instead of failing in silence, for example when <code>sudo</code> insists on a terminal "
-      "(<code>requiretty</code>) or when your user may not use it. In that case use a user with <code>NOPASSWD</code>, change the rule, or log in as root "
-      "(" + rif("Remote: sudo does not work") + ").")
+         "when you quit. While ngtop holds it, the process also refuses to produce a memory dump. It is sent only after sudo showed the prompt that ngtop chose, "
+         "so a server cannot trick ngtop into typing it somewhere else.", "Where the password goes.") + \
+    p("If it does not work, ngtop tells you why instead of failing in silence: <code>sudo: a terminal is required (requiretty)</code>, "
+      "<code>sudo: not allowed for this user</code>, <code>sudo: not installed on the server</code>, or <code>sudo asked for something ngtop does not recognise: …</code> "
+      "(for example a second factor such as <code>Verification code:</code>). ngtop waits up to 5 minutes for the first prompt and then 20 seconds after the password. "
+      "In those cases use a user with <code>NOPASSWD</code>, change the rule, or log in as root (" + rif("Remote: sudo does not work") + ").")
 
 S_PROTECT = p("The protections of the local case (" + rif("What ngtop protects you from") + ") are there on the remote machine too, and one more is added.", lead=True) + \
     table(["Protection", "How it works remotely"], [
         ["The right process", "Together with the signal or the nice value, ngtop sends the start time of the process that you selected. The server reads that time again and acts "
          "<b>only if it is the same</b>. If the PID has been given to another program, nothing is done and the status line says so."],
         ["PID 1 and ngtop's own session", "PID 1 is never touched, and neither is the script of ngtop on the server nor the " + c("sudo") + "/" + c("sshd") + " session that carries it: signalling them would cut you off."],
+        ["A drop during an action", "If the link breaks while an action is being sent, ngtop cannot know whether it was done: the status line says <code>connection lost: outcome unknown</code> and the action is <b>never repeated</b> by itself. Look at the result before you try again."],
+        ["A reconnection in the middle", "An action prepared before a reconnection is refused (<code>the connection changed since the dialog was opened: nothing sent</code>): open the window again."],
+        ["Other users' processes", "ngtop compares the owner with the user id of the <i>server</i>. If it is not known, all processes count as foreign and the double confirmation is asked."],
         ["Confirmations", "The same windows as the local case (the second " + key("Enter") + " for big subtrees), with the name of the machine."],
     ], "«TAB» — Protections on a remote machine") + \
     note("<b>A window of a few milliseconds remains.</b> On your PC ngtop pins the process (with a <code>pidfd</code>) and the risk is zero. On the server that is not "

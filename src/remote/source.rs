@@ -14,7 +14,7 @@ use std::ffi::OsString;
 use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, Weak};
 use std::time::Duration;
 
@@ -220,6 +220,9 @@ pub(super) struct Shared {
     sess: Mutex<Option<Session>>,
     status: Mutex<StatusInfo>,
     reconnecting: AtomicBool,
+    /// Generazione della sessione installata (0 = nessuna): scritta quando la sessione entra o esce,
+    /// letta senza lock (l'interfaccia la chiede a ogni invio e non deve aspettare una richiesta lenta).
+    gen_now: AtomicU64,
     /// Solo per i test: tutte le righe di richiesta inviate.
     #[cfg(test)]
     sent: Mutex<Vec<u8>>,
@@ -257,6 +260,7 @@ pub(super) fn open(
             ..Default::default()
         }),
         reconnecting: AtomicBool::new(false),
+        gen_now: AtomicU64::new(1),
         #[cfg(test)]
         sent: Mutex::new(Vec::new()),
     });
@@ -271,9 +275,9 @@ pub(super) fn open(
 }
 
 impl Shared {
-    /// Generazione della sessione corrente, letta sotto il lock di sessione (0 = nessuna sessione).
+    /// Generazione della sessione corrente (0 = nessuna sessione), senza prendere il lock di sessione.
     pub(super) fn generation(&self) -> u64 {
-        lock(&self.sess).as_ref().map_or(0, |s| s.generation)
+        self.gen_now.load(Ordering::SeqCst)
     }
 
     /// Pid della sessione ngtop sul server (lo script e i suoi antenati).
@@ -316,6 +320,7 @@ impl Shared {
             }
             Err(e) => {
                 *g = None;
+                self.gen_now.store(0, Ordering::SeqCst);
                 drop(g);
                 self.lost(e.to_string());
                 Err(e)
@@ -369,7 +374,11 @@ impl Shared {
                             s.generation = st.generation;
                             st.self_pids = s.self_pids.clone();
                         }
-                        *lock(&sh.sess) = Some(s);
+                        let gen_new = s.generation;
+                        let mut g = lock(&sh.sess);
+                        *g = Some(s);
+                        sh.gen_now.store(gen_new, Ordering::SeqCst);
+                        drop(g);
                         let _ = sh.refresh_hostname();
                         lock(&sh.status).state = Some(RemoteState::Connected);
                         sh.reconnecting.store(false, Ordering::SeqCst);
