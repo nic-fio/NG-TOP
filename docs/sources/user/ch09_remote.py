@@ -100,9 +100,10 @@ S_SUDO = p("The option " + c("--sudo") + " makes the program on the server run <
            "If sudo asks again, the password was wrong: ngtop exits with <code>sudo: wrong password</code> and the script is never sent."]) + \
     p("You can write the same choice in the configuration file with " + c("sudo = true") + " (" + rif("Every setting") + "); it applies to " + c("--dump") + " too.") + \
     note("<b>The password stays in the memory of ngtop</b> as long as ngtop is open, so that after a drop of the network it can reconnect by itself, as it does without "
-         "sudo (" + rif("Lost connection and reconnection") + "). It is never written to the disk, nor to the configuration file, nor to a log, and it is erased "
-         "when you quit. While ngtop holds it, the process also refuses to produce a memory dump. It is sent only after sudo showed the prompt that ngtop chose, "
-         "so a server cannot trick ngtop into typing it somewhere else.", "Where the password goes.") + \
+         "sudo (" + rif("Lost connection and reconnection") + "). ngtop never writes it to a file, to the configuration or to a log (the system may still swap memory out to disk), and it is erased from memory "
+         "when ngtop ends or the session is dropped. While ngtop holds it, the process also refuses to produce a memory dump. It is sent only after sudo showed the prompt that ngtop chose: "
+         "if sudo does not ask, the password is not sent, and a line that merely looks like “password:” is not enough to get it. This is <b>not</b> a defence against a compromised server: "
+         "the prompt can be read in the command line on the server, and whoever controls the server receives what you type. Give the password only to servers you trust.", "Where the password goes.") + \
     p("If it does not work, ngtop tells you why instead of failing in silence: <code>sudo: a terminal is required (requiretty)</code>, "
       "<code>sudo: not allowed for this user</code>, <code>sudo: not installed on the server</code>, or <code>sudo asked for something ngtop does not recognise: …</code> "
       "(for example a second factor such as <code>Verification code:</code>). ngtop waits up to 5 minutes for the first prompt and then 20 seconds after the password. "
@@ -112,7 +113,7 @@ S_PROTECT = p("The protections of the local case (" + rif("What ngtop protects y
     table(["Protection", "How it works remotely"], [
         ["The right process", "Together with the signal or the nice value, ngtop sends the start time of the process that you selected. The server reads that time again and acts "
          "<b>only if it is the same</b>. If the PID has been given to another program, nothing is done and the status line says so."],
-        ["PID 1 and ngtop's own session", "PID 1 is never touched, and neither is the script of ngtop on the server nor the " + c("sudo") + "/" + c("sshd") + " session that carries it: signalling them would cut you off."],
+        ["PID 1 and ngtop's own session", "PID 1 is never touched. ngtop's session on the server (its script and the " + c("sudo") + "/" + c("sshd") + " that carry it) is skipped in a subtree; if you choose it directly, the dialog warns you (<code>WARNING: you are signalling the ngtop session on the server</code>), as for ngtop itself locally: signalling it would cut you off."],
         ["A drop during an action", "If the link breaks while an action is being sent, ngtop cannot know whether it was done: the status line says <code>connection lost: outcome unknown</code> and the action is <b>never repeated</b> by itself. Look at the result before you try again."],
         ["A reconnection in the middle", "An action prepared before a reconnection is refused (<code>the connection changed since the dialog was opened: nothing sent</code>): open the window again."],
         ["Other users' processes", "ngtop compares the owner with the user id of the <i>server</i>. If it is not known, all processes count as foreign and the double confirmation is asked."],
