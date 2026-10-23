@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 03 Processi</title><link rel="stylesheet" href="tui.css">
+<style>
+  #wt { border-collapse: collapse; width: 100%; }
+  #wt td, #wt th { padding: 0 1ch; white-space: pre; }
+  #wt th { font-weight: 400; color: var(--dim); text-align: right; border-left: 1px solid var(--line); }
+  #wt th:first-child, #wt th:nth-child(2) { text-align: left; border-left: 0; }
+  #wt th .pc { color: var(--white); font-weight: 700; }
+  #wt td { text-align: right; border-left: 1px solid #1c222b; }
+  #wt td:first-child, #wt td:nth-child(2) { text-align: left; border-left: 0; }
+  #wt tr.g td { color: var(--net); font-weight: 700; padding-top: .45em; border-left: 0; }
+  #wt tr.sel td { background: #1f6feb66 !important; color: #fff; }
+  .search { border: 1px solid var(--line); padding: 0 1ch; width: 48ch; color: var(--dim); }
+</style></head>
+<body>
+<div id="nav" data-i="3"></div>
+<p class="desc">Ispirata alla scheda <b>Processi</b> di Windows: i processi sono raggruppati in <b>App</b> (programmi con finestra), <b>Processi in background</b> e <b>Processi di sistema</b>; ogni app si espande (▸/▾) mostrando i suoi sottoprocessi, e le colonne mostrano la somma. Le celle si colorano più intensamente quanto più la risorsa è usata (mappa di calore), e in cima a ogni colonna c'è il totale del sistema. Il riquadro di ricerca filtra al volo per nome, comando o PID.</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 150×44</span></div>
+<div class="scr" style="width:152ch">
+
+<div class="top" style="margin:.3em 0 .4em"><span class="b c-net"> ngtop </span><div class="tabs"><span class="on">Processi</span><span>Prestazioni</span><span>Cronologia</span><span>Avvio</span><span>Utenti</span><span>Dettagli</span><span>Servizi</span></div><span class="grow"></span><span class="search">/ Cerca nome, comando o PID…</span></div>
+
+<table id="wt"></table>
+
+<div class="top" style="margin-top:.6em;border-top:1px solid var(--line);padding-top:.3em"><span class="dim">7 app · 22 in background · 14 di sistema   </span><span class="grow"></span><span class="btn">n Nuova attività</span><span> </span><span class="btn">e Modalità efficienza</span><span> </span><span class="btn on">Canc Termina attività</span></div>
+<div class="keys"><b>↑↓</b><span>Muovi</span><b>←→</b><span>Chiudi/apri gruppo</span><b>Invio</b><span>Dettagli</span><b>/</b><span>Cerca</span><b>s</b><span>Ordina colonna</span><b>v</b><span>Valori %/assoluti</span><b>Tab</b><span>Scheda</span><b>q</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script>
+<script>
+const P = NG.procs, kids = {};
+P.forEach(p => (kids[p.ppid] ||= []).push(p));
+const all = p => [p, ...(kids[p.pid] || []).filter(k => k.grp === 'child').flatMap(all)];
+const sum = (p, f) => all(p).reduce((a, q) => a + f(q), 0);
+const H = ['#0b0f14', '#3a2f05', '#6b4d00', '#9a5b05', '#c2410c'];
+const heat = (v, max) => `background:${NG.grad(H, Math.min(1, v / max))}`;
+const open = { 2001: 1, 3200: 1 };
+const engine = p => p.name.startsWith('Cyber') || p.name === 'steam' ? 'GPU 0 - 3D' : p.name === 'obs' ? 'GPU 0 - VCN' : (p.gpu ? 'GPU 0 - 3D' : '');
+function row(p, ind, agg, sel) {
+  const c = agg ? sum(p, q => q.c) : p.c, m = agg ? sum(p, q => q.m) : p.m, d = agg ? sum(p, q => q.d) : p.d,
+        n = agg ? sum(p, q => q.n) : p.n, g = agg ? Math.min(99, sum(p, q => q.g)) : p.g;
+  const k = agg ? all(p).length - 1 : 0;
+  const tw = k ? (open[p.pid] ? '▾ ' : '▸ ') : '  ';
+  const name = (ind + tw + p.name + (k ? ` (${k + 1})` : '')).padEnd(34).slice(0, 34);
+  const st = p.pid === 3610 ? '<span class="c-net">‖ sospeso</span>' : p.pid === 4301 ? '<span class="c-grn">◒ efficienza</span>' : '';
+  return `<tr class="${sel ? 'sel' : ''}"><td>${name}</td><td>${st}</td>` +
+    `<td style="${heat(c, 30)}">${c.toFixed(1)}%</td><td style="${heat(m, 6000)}">${NG.fmtMB(m).replace('G', ' GB').replace('M', ' MB')}</td>` +
+    `<td style="${heat(d, 12)}">${d < .05 ? '0' : d.toFixed(1)} MB/s</td><td style="${heat(n, 4)}">${n < .05 ? '0' : n.toFixed(1)} Mbps</td>` +
+    `<td style="${heat(g, 90)}">${g ? g.toFixed(0) + '%' : '0%'}</td><td class="dim" style="text-align:left">${engine(p)}</td></tr>`;
+}
+function render() {
+  const tc = P.reduce((a, p) => a + p.c, 0), tg = Math.max(...P.map(p => p.g));
+  let h = `<tr><th></th><th></th><th><span class="pc">${Math.min(99, tc).toFixed(0)}%</span></th><th><span class="pc">45%</span></th><th><span class="pc">3%</span></th><th><span class="pc">1%</span></th><th><span class="pc">${tg.toFixed(0)}%</span></th><th></th></tr>`;
+  h += `<tr><th>Nome</th><th>Stato</th><th class="w">CPU ▼</th><th>Memoria</th><th>Disco</th><th>Rete</th><th>GPU</th><th style="text-align:left">Motore GPU</th></tr>`;
+  const grp = [['App', P.filter(p => p.grp === 'app')], ['Processi in background', P.filter(p => p.grp === 'bg')], ['Processi di sistema', P.filter(p => p.grp === 'sys')]];
+  for (const [t, list] of grp) {
+    h += `<tr class="g"><td colspan="8">▾ ${t} (${list.length})</td></tr>`;
+    list.sort((a, b) => sum(b, q => q.c) - sum(a, q => q.c));
+    for (const p of list) {
+      h += row(p, '  ', true, p.pid === 2001);
+      if (open[p.pid]) all(p).slice(1).forEach(q => h += row(q, '      ', false));
+    }
+  }
+  document.getElementById('wt').innerHTML = h;
+}
+NG.start(render);
+</script>
+</body></html>

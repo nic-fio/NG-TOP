@@ -1,0 +1,424 @@
+{
+ "compact_keys": [
+  [
+   "F1",
+   "Help"
+  ],
+  [
+   "/",
+   "Filter"
+  ],
+  [
+   "F5",
+   "Tree"
+  ],
+  [
+   "F6",
+   "Sort"
+  ],
+  [
+   "F9",
+   "Sig"
+  ],
+  [
+   "q",
+   "Quit"
+  ]
+ ],
+ "filter_keys": [
+  [
+   "Enter",
+   "Confirm"
+  ],
+  [
+   "Esc",
+   "Cancel and clear"
+  ]
+ ],
+ "global_keys": [
+  [
+   "1-5 Tab Shift-Tab",
+   "switch section"
+  ],
+  [
+   "+/-",
+   "refresh interval"
+  ],
+  [
+   "W",
+   "save configuration"
+  ],
+  [
+   "q F10 Ctrl-C",
+   "quit"
+  ],
+  [
+   "Mouse",
+   "click tabs, rows, headers; wheel scrolls"
+  ]
+ ],
+ "options": [
+  {
+   "flag": "-h, --help",
+   "help": "show this help"
+  },
+  {
+   "flag": "-V, --version",
+   "help": "show the version"
+  },
+  {
+   "flag": "-d, --delay MS",
+   "help": "refresh interval in ms (250–5000)"
+  },
+  {
+   "flag": "-s, --section N",
+   "help": "start section: 1 Overview, 2 GPU, 3 Processes, 4 Network & Disks, 5 Services"
+  },
+  {
+   "flag": "--no-mouse",
+   "help": "do not use the mouse"
+  },
+  {
+   "flag": "--256",
+   "help": "force 256 colors (for terminals without truecolor)"
+  },
+  {
+   "flag": "--config FILE",
+   "help": "use FILE instead of ~/.config/ngtop/config.toml"
+  },
+  {
+   "flag": "--dump",
+   "help": "print a text summary and exit (no interface)"
+  }
+ ],
+ "sections": [
+  {
+   "help": [
+    [
+     "Up Down PgUp PgDn",
+     "select"
+    ],
+    [
+     "F6 < >",
+     "sort"
+    ],
+    [
+     "i",
+     "invert"
+    ],
+    [
+     "F5",
+     "list/tree"
+    ],
+    [
+     "/ F3 F4",
+     "filter"
+    ],
+    [
+     "F9",
+     "signal"
+    ],
+    [
+     "n",
+     "switch network interface"
+    ],
+    [
+     "d",
+     "switch GPU"
+    ]
+   ],
+   "keys": [
+    [
+     "F1",
+     "Help"
+    ],
+    [
+     "F3",
+     "Search"
+    ],
+    [
+     "F4",
+     "Filter"
+    ],
+    [
+     "F5",
+     "Tree"
+    ],
+    [
+     "F6",
+     "Sort"
+    ],
+    [
+     "F9",
+     "Signal"
+    ],
+    [
+     "+/-",
+     "Interval"
+    ],
+    [
+     "1-5",
+     "Sections"
+    ],
+    [
+     "q",
+     "Quit"
+    ]
+   ],
+   "name": "Overview"
+  },
+  {
+   "help": [
+    [
+     "d",
+     "switch GPU"
+    ],
+    [
+     "F6",
+     "sort"
+    ],
+    [
+     "/",
+     "filter"
+    ],
+    [
+     "F9",
+     "signal"
+    ]
+   ],
+   "keys": [
+    [
+     "d",
+     "Device"
+    ],
+    [
+     "F6",
+     "Sort"
+    ],
+    [
+     "F9",
+     "Signal"
+    ],
+    [
+     "+/-",
+     "Interval"
+    ],
+    [
+     "1-5",
+     "Sections"
+    ],
+    [
+     "q",
+     "Quit"
+    ]
+   ],
+   "name": "GPU"
+  },
+  {
+   "help": [
+    [
+     "Space",
+     "fold branch"
+    ],
+    [
+     "F5",
+     "list/tree"
+    ],
+    [
+     "← →",
+     "tabs"
+    ],
+    [
+     "[ ]",
+     "scroll"
+    ],
+    [
+     "F7 F8",
+     "nice -1/+1 (main thread only, like htop)"
+    ],
+    [
+     "F9 k",
+     "signal: Up/Down choose, Space subtree, Enter send"
+    ]
+   ],
+   "keys": [
+    [
+     "F3",
+     "Search"
+    ],
+    [
+     "F4",
+     "Filter"
+    ],
+    [
+     "F5",
+     "List/Tree"
+    ],
+    [
+     "Space",
+     "Fold"
+    ],
+    [
+     "←→",
+     "Tabs"
+    ],
+    [
+     "F7/F8",
+     "Nice"
+    ],
+    [
+     "F9",
+     "Signal"
+    ],
+    [
+     "1-5",
+     "Sections"
+    ],
+    [
+     "q",
+     "Quit"
+    ]
+   ],
+   "name": "Processes"
+  },
+  {
+   "help": [
+    [
+     "i",
+     "interface"
+    ],
+    [
+     "c",
+     "TCP/UDP"
+    ],
+    [
+     "l",
+     "LISTEN"
+    ],
+    [
+     "F6",
+     "sort"
+    ],
+    [
+     "z",
+     "reset"
+    ],
+    [
+     "Enter",
+     "go to process"
+    ],
+    [
+     "F9",
+     "signal to the connection's process"
+    ]
+   ],
+   "keys": [
+    [
+     "i",
+     "Interface"
+    ],
+    [
+     "c",
+     "TCP/UDP"
+    ],
+    [
+     "l",
+     "LISTEN"
+    ],
+    [
+     "Enter",
+     "Go to process"
+    ],
+    [
+     "F6",
+     "Sort"
+    ],
+    [
+     "z",
+     "Reset peaks/totals"
+    ],
+    [
+     "1-5",
+     "Sections"
+    ],
+    [
+     "q",
+     "Quit"
+    ]
+   ],
+   "name": "Network & Disks"
+  },
+  {
+   "help": [
+    [
+     "/",
+     "search"
+    ],
+    [
+     "f",
+     "filter"
+    ],
+    [
+     "u",
+     "system/user"
+    ],
+    [
+     "s t r",
+     "start/stop/restart"
+    ],
+    [
+     "e",
+     "enable/disable"
+    ],
+    [
+     "j",
+     "full-screen journal"
+    ]
+   ],
+   "keys": [
+    [
+     "/",
+     "Search"
+    ],
+    [
+     "f",
+     "Filter"
+    ],
+    [
+     "u",
+     "System/User"
+    ],
+    [
+     "s",
+     "Start"
+    ],
+    [
+     "t",
+     "Stop"
+    ],
+    [
+     "r",
+     "Restart"
+    ],
+    [
+     "e",
+     "Enable/Disable"
+    ],
+    [
+     "j",
+     "Journal"
+    ],
+    [
+     "1-5",
+     "Sections"
+    ],
+    [
+     "q",
+     "Quit"
+    ]
+   ],
+   "name": "Services"
+  }
+ ],
+ "version": "0.1.0"
+}

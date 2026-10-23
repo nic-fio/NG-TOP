@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop – Your Linux machine, at a glance</title>
+<link rel="canonical" href="https://ngtop.nicfio.it/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ngtop">
+<meta property="og:title" content="ngtop – Your Linux machine, at a glance">
+<meta property="og:description" content="A system monitor for the terminal: btop + nvtop + the Windows Task Manager, in one static binary for any Linux.">
+<meta property="og:url" content="https://ngtop.nicfio.it/">
+<meta property="og:image" content="https://ngtop.nicfio.it/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="description" content="ngtop is a system monitor for the terminal: btop + nvtop + the Windows Task Manager, in one static binary.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ngterm.css">
+<style>
+:root{--ink:#14213d;--mut:#5b6784;--line:#e6eaf3;--bg:#fff;--soft:#f6f8fc;--c1:#16c6f0;--c2:#7a4cf0;--grad:linear-gradient(135deg,var(--c1),var(--c2));--fs:12px}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:Outfit,system-ui,sans-serif;color:var(--ink);background:var(--bg);line-height:1.55;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+.i{width:1em;height:1em;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.wrap{max-width:1160px;margin:0 auto;padding:0 20px}
+/* hero */
+.hero{background:linear-gradient(135deg,#12c4f0 0%,#4f7cf3 50%,#7a4cf0 100%);color:#fff;padding-bottom:300px}
+nav{display:flex;align-items:center;gap:26px;padding:18px 0}
+nav .logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:22px;margin-right:auto}
+nav .logo svg{width:32px;height:32px}
+nav a.l{font-size:15px;opacity:.92}
+nav a.l:hover{opacity:1;text-decoration:underline}
+.pill{display:inline-flex;align-items:center;gap:8px;background:#fff;color:#3b4fd8;font-weight:600;border-radius:99px;padding:10px 24px;font-size:15px;box-shadow:0 6px 18px rgba(30,40,120,.25);transition:transform .15s}
+.pill:hover{transform:translateY(-2px)}
+.pill.ghost{background:rgba(255,255,255,.14);color:#fff;border:1.5px solid rgba(255,255,255,.7);box-shadow:none}
+.hero .c{text-align:center;padding-top:44px}
+.badge{display:inline-block;background:rgba(255,255,255,.2);border-radius:99px;padding:4px 16px;font-size:14px;font-weight:500}
+h1{font-size:clamp(38px,6.2vw,72px);line-height:1.05;font-weight:800;margin:22px auto 18px;max-width:900px;letter-spacing:-.02em}
+.hero p.sub{font-size:19px;max-width:700px;margin:0 auto 28px;opacity:.95}
+.btns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.btns .pill{padding:13px 30px;font-size:16px}
+.note{font-size:14px;opacity:.85;margin-top:16px}
+/* monitor */
+.mon{position:relative;z-index:2;max-width:1000px;margin:-250px auto 0;padding:0 20px}
+.bezel{background:#1a2036;border-radius:18px 18px 8px 8px;padding:14px 14px 20px;box-shadow:0 40px 80px rgba(40,40,110,.35),0 0 0 1px #0d1224}
+.bezel .scr{background:#0b0f14;border-radius:6px;overflow:hidden;text-align:center}
+.bezel .scr .ngt-win{border:0;border-radius:0;box-shadow:none;max-width:none}
+.stand{width:120px;height:46px;margin:0 auto;background:linear-gradient(#2a3150,#161b30);clip-path:polygon(18% 0,82% 0,100% 100%,0 100%)}
+.foot{width:300px;max-width:60%;height:12px;margin:0 auto;border-radius:8px;background:linear-gradient(#3a4266,#1a2036);box-shadow:0 10px 30px rgba(40,40,110,.3)}
+.cap{text-align:center;color:var(--mut);font-size:14px;margin-top:22px}
+/* sections */
+section{padding:80px 0}
+.eyebrow{display:block;text-align:center;font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+h2{font-size:clamp(30px,4vw,44px);line-height:1.1;margin:8px 0 14px;text-align:center;letter-spacing:-.015em;font-weight:800}
+.lead{text-align:center;color:var(--mut);max-width:680px;margin:0 auto 40px;font-size:18px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:0 10px 30px rgba(40,50,110,.06)}
+.step .n{display:flex;align-items:center;justify-content:center;width:54px;height:54px;border-radius:50%;background:var(--grad);color:#fff;font-size:26px;position:relative;margin-bottom:16px}
+.step .n b{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:#fff;color:var(--c2);font-size:13px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+.card h3{margin:0 0 6px;font-size:20px}
+.card p{margin:0;color:var(--mut);font-size:15.5px}
+code{font-family:'JetBrains Mono','DejaVu Sans Mono',monospace;background:#eef1fa;border-radius:6px;padding:1px 7px;font-size:.9em;color:#3b2fb0}
+.feat{background:var(--soft)}
+.fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.feat .ic{width:48px;height:48px;border-radius:13px;background:var(--grad);color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:16px}
+.screens .sg{display:grid;grid-template-columns:1fr 1fr;gap:34px}
+.screens figure{margin:0;min-width:0}
+.screens .term{background:#0b0f14;border-radius:14px;overflow:hidden;box-shadow:0 18px 40px rgba(40,50,110,.2);text-align:left}
+.screens .term .ngt-win{border:0;border-radius:0;box-shadow:none;max-width:none}
+.screens figcaption{margin-top:12px;color:var(--mut);font-size:15px;text-align:center}
+.screens figcaption b{color:var(--ink)}
+.get{background:var(--grad);color:#fff;border-radius:28px;padding:56px 40px;text-align:center}
+.get h2{color:#fff}
+.get .lead{color:rgba(255,255,255,.92);margin-bottom:26px}
+.cmd{display:inline-block;text-align:left;background:rgba(10,14,30,.55);border-radius:14px;padding:18px 26px;font:15px/1.8 'JetBrains Mono','DejaVu Sans Mono',monospace;margin-bottom:28px;max-width:100%;overflow-x:auto}
+.cmd i{color:#8fe3ff;font-style:normal}
+.facts{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:26px}
+.facts span{background:rgba(255,255,255,.18);border-radius:99px;padding:5px 15px;font-size:14px;max-width:100%}
+.facts a{color:#fff;text-decoration:underline}
+.facts code.sha{background:none;color:#fff;padding:0;font-size:12px;word-break:break-all}
+.tested{text-align:center;color:var(--mut);font-size:15px;margin-top:34px}
+#licence{padding:40px 0 10px;text-align:center;color:var(--mut)}
+#licence h3{margin:0 0 6px;color:var(--ink)}
+#licence a{color:var(--ink);text-decoration:underline}
+footer{border-top:1px solid var(--line);padding:28px 0;color:var(--mut);font-size:14px}
+footer .wrap{display:flex;gap:22px;flex-wrap:wrap;align-items:center}
+footer .logo{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--ink);margin-right:auto;font-size:17px}
+footer .logo svg{width:24px;height:24px}
+footer a:hover{color:var(--ink)}
+@media(max-width:900px){.steps,.fgrid{grid-template-columns:1fr 1fr}.screens .sg{grid-template-columns:1fr}}
+@media(max-width:620px){
+ nav a.l{display:none}
+ .hero{padding-bottom:150px}
+ .mon{margin-top:-110px;padding:0 10px}
+ .bezel{padding:6px 6px 10px;border-radius:10px}
+ .stand{height:22px;width:70px}
+ .steps,.fgrid{grid-template-columns:1fr}
+ section{padding:56px 0}
+ .get{padding:40px 18px;border-radius:20px}
+ .hero p.sub{font-size:17px}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="logo" viewBox="0 0 32 32"><rect x="2" y="4" width="28" height="24" rx="6" fill="#0b0f14" stroke="#58a6ff" stroke-width="2"/><path d="M7 21l5-6 4 3 8-8" fill="none" stroke="#3fb950" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 20h16"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></symbol>
+<symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 017.5-2"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+<symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+<symbol id="i-gpu" viewBox="0 0 24 24"><rect x="2" y="7" width="18" height="10" rx="2"/><circle cx="11" cy="12" r="3"/><path d="M20 10h2v4h-2M6 17v3"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+<symbol id="i-net" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+<symbol id="i-srv" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></symbol>
+<symbol id="i-term" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10l3 2-3 2M12 15h5"/></symbol>
+<symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+<symbol id="i-key" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+<symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4"/></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="M12 3l9 4.5v9L12 21l-9-4.5v-9zM3 7.5l9 4.5 9-4.5M12 12v9"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-pal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h9"/></symbol>
+</defs></svg>
+
+<header class="hero">
+ <div class="wrap">
+  <nav>
+   <a class="logo" href="#top"><svg><use href="#logo"/></svg>ngtop</a>
+   <a class="l" href="#features">Features</a><a class="l" href="#screens">Screens</a><a class="l" href="#download">Get it</a><a class="l" href="User%20Manual.html">Docs</a><a class="l" href="licence.html">Licence</a>
+   <a class="pill" href="download/ngtop" download>Download</a>
+  </nav>
+  <div class="c" id="top">
+   <span class="badge">Version 0.1.0</span>
+   <h1>Your Linux machine, at a glance.</h1>
+   <p class="sub">ngtop is a system monitor for the terminal: btop + nvtop + the Windows Task Manager, in one tool. One static binary, nothing to install.</p>
+   <div class="btns"><a class="pill" href="download/ngtop" download><svg class="i"><use href="#i-dl"/></svg>Download ngtop</a><a class="pill ghost" href="User%20Manual.html">Read the manual</a></div>
+   <div class="note">Linux x86_64 · about @SIZE@ · no dependencies</div>
+  </div>
+ </div>
+</header>
+<div class="mon">
+ <div class="bezel"><div class="scr" id="t-hero"></div></div>
+ <div class="stand"></div><div class="foot"></div>
+ <div class="cap">The real Overview screen, live. Click the tabs at the top to switch section.</div>
+</div>
+
+<section id="how">
+ <div class="wrap">
+  <span class="eyebrow">How it works</span>
+  <h2>Three steps, and the first one only once</h2>
+  <p class="lead">There is no installer, no package and no daemon. The program is a single file.</p>
+  <div class="steps">
+   <div class="card step"><div class="n"><svg class="i"><use href="#i-dl"/></svg><b>1</b></div><h3>Download</h3><p>Get the one file, <code>ngtop</code>, for Linux x86_64. About @SIZE@.</p></div>
+   <div class="card step"><div class="n"><svg class="i"><use href="#i-unlock"/></svg><b>2</b></div><h3>Make it executable</h3><p>Once only: <code>chmod +x ngtop</code>. That is the whole setup.</p></div>
+   <div class="card step"><div class="n"><svg class="i"><use href="#i-play"/></svg><b>3</b></div><h3>Run it</h3><p>Type <code>./ngtop</code>. The first frame appears in about 25 ms.</p></div>
+  </div>
+ </div>
+</section>
+
+<section class="feat" id="features">
+ <div class="wrap">
+  <span class="eyebrow">Features</span>
+  <h2>Everything your machine is doing</h2>
+  <p class="lead">Five sections, one keystroke apart: Overview, GPU, Processes, Network &amp; Disks, Services.</p>
+  <div class="fgrid">
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-cpu"/></svg></div><h3>Overview</h3><p>Braille CPU graph and every core, memory, swap and zram, GPU, mirrored network graph, disks and a process list with GPU% and VRAM.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-gpu"/></svg></div><h3>GPU</h3><p>AMD (amdgpu) and Intel (i915, xe): per-process use and VRAM, engines, clocks, temperatures, fan, power, PCIe. Never wakes a sleeping discrete GPU.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-list"/></svg></div><h3>Processes</h3><p>A tree with folding, and details: threads, open files, sockets, environment, limits, cgroup. Signals and nice, always with confirmation.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-net"/></svg></div><h3>Network &amp; Disks</h3><p>Interfaces, connections with the process that owns them, disk IOPS, latency, queue and temperature. A hung NFS mount never freezes the screen.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-srv"/></svg></div><h3>Services</h3><p>systemd units: start, stop, restart, enable with confirmation (polkit asks the password), the journal of each unit, boot time and the slowest units.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-shield"/></svg></div><h3>Safe signals</h3><p>Signals go through pidfd, so one can never reach a recycled PID. The subtree of PID 1 is protected.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-term"/></svg></div><h3>Fits over SSH</h3><p>The compact layout switches on by itself below 100×30 and fits an 80×24 terminal.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-key"/></svg></div><h3>Keyboard and mouse</h3><p>htop-style F-keys and full mouse support. Truecolor, 256 or 16 colours chosen automatically. °C or °F.</p></div>
+   <div class="card"><div class="ic"><svg class="i"><use href="#i-bolt"/></svg></div><h3>Light on the machine</h3><p>Measured on an Intel N100: about 1 % CPU at the default 1 s refresh and about 5.6 MB of RAM.</p></div>
+  </div>
+ </div>
+</section>
+
+<section class="screens" id="screens">
+ <div class="wrap">
+  <span class="eyebrow">Real screens</span>
+  <h2>Not screenshots: the program itself</h2>
+  <p class="lead">These terminals are alive, with sample data. Click the tabs to move between sections.</p>
+  <div class="sg">
+   <figure><div class="term" id="t-gpu"></div><figcaption><b>GPU</b> – engines, clocks, temperatures and per-process VRAM</figcaption></figure>
+   <figure><div class="term" id="t-proc"></div><figcaption><b>Processes</b> – the tree, the details and a confirmed signal</figcaption></figure>
+   <figure><div class="term" id="t-net"></div><figcaption><b>Network &amp; Disks</b> – connections with their owner process</figcaption></figure>
+   <figure><div class="term" id="t-svc"></div><figcaption><b>Services</b> – systemd units, journal and boot time</figcaption></figure>
+  </div>
+ </div>
+</section>
+
+<section id="download" style="padding-top:20px">
+ <div class="wrap">
+  <div class="get">
+   <span class="eyebrow" style="background:none;color:#fff;opacity:.85">Get it</span>
+   <h2>Download. chmod. Run.</h2>
+   <p class="lead">One file, nothing to install. Download it, make it executable, run it.</p>
+   <div class="cmd"><i>$</i> curl -LO https://ngtop.nicfio.it/download/ngtop &amp;&amp; chmod +x ngtop &amp;&amp; ./ngtop</div><br>
+   <a class="pill" href="download/ngtop" download><svg class="i"><use href="#i-dl"/></svg>Download ngtop 0.1.0</a>
+   <div class="facts"><span>Linux x86_64</span><span>@SIZE@</span><span>SHA-256 <code class="sha">@SHA256@</code></span><span><a href="download/SHA256SUMS">Verify: SHA256SUMS</a></span><span>No dependencies</span><span>Config: ~/.config/ngtop/config.toml</span><span>ngtop --dump: text summary</span></div>
+  </div>
+  <p class="tested"><b>Tested on</b> Ubuntu 24.04 · Debian 12 · Debian 10 · Fedora 41 · Arch Linux · Alpine 3.20 · openSUSE Tumbleweed · CentOS 7</p>
+  <div id="licence"><h3>Licence</h3>Free for any noncommercial use (PolyForm Noncommercial 1.0.0). For commercial use write to <a href="mailto:ngtop@nicfio.it">ngtop@nicfio.it</a>. <a href="licence.html">Read the licence</a>.</div>
+ </div>
+</section>
+
+<footer>
+ <div class="wrap">
+  <span class="logo"><svg><use href="#logo"/></svg>ngtop</span>
+  <a href="#features">Features</a><a href="#screens">Screens</a><a href="#download">Get it</a><a href="User%20Manual.html">Docs</a><a href="licence.html">Licence</a><a href="decisions.html">Design decisions</a><a href="Technical%20Manual.html">Technical manual</a>
+  <span>ngtop 0.1.0 · October 2026 · by nic-fio</span>
+ </div>
+</footer>
+
+<script src="tui.js"></script>
+<script src="ngterm.js"></script>
+<script>
+NGT.mount('#t-hero','overview',{bar:false});
+NGT.mount('#t-gpu','gpu',{bar:false});
+NGT.mount('#t-proc','processes',{bar:false});
+NGT.mount('#t-net','network',{bar:false});
+NGT.mount('#t-svc','services',{bar:false});
+['#t-hero','#t-gpu','#t-proc','#t-net','#t-svc'].forEach(s=>NGT.autofit(s));
+NGT.start();
+</script>
+</body>
+</html>

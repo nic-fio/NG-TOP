@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 02 Prestazioni</title><link rel="stylesheet" href="tui.css">
+<style>
+  .side > div { padding: .25em 1ch .3em; border-left: 2px solid transparent; }
+  .side > div.on { background: #161f2b; border-left-color: var(--net); }
+  .side .n { font-weight: 700; color: var(--white); }
+  .big { color: var(--white); font-weight: 700; }
+  .lab { color: var(--dim); }
+  .frame { border: 1px solid #1f6feb88; position: relative; width: fit-content;
+    background-image: linear-gradient(#1f6feb22 1px, transparent 1px), linear-gradient(90deg, #1f6feb22 1px, transparent 1px);
+    background-size: 10ch 2.5em; }
+</style></head>
+<body>
+<div id="nav" data-i="2"></div>
+<p class="desc">Ispirata alla scheda <b>Prestazioni</b> del Gestore attività di Windows. A sinistra l'elenco delle risorse (CPU, memoria, ogni disco, ogni scheda di rete, ogni GPU) con un mini-grafico; a destra il <b>grafico grande</b> della risorsa selezionata (frecce ↑↓ per cambiarla) e sotto i numeri principali in grande più le informazioni fisse dell'hardware. Il tasto <b>L</b> passa dal grafico unico a un grafico per ciascun processore logico.</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 160×46</span></div>
+<div class="scr" style="width:162ch">
+
+<div class="top" style="margin:.3em 0 .4em"><span class="b c-net"> ngtop </span><div class="tabs"><span>Processi</span><span class="on">Prestazioni</span><span>Cronologia</span><span>Avvio</span><span>Utenti</span><span>Dettagli</span><span>Servizi</span></div><span class="grow"></span><span data-clock class="dim"></span></div>
+
+<div class="g" style="grid-template-columns:36ch 1fr;gap:0 2ch;border-top:1px solid var(--line);padding-top:.4em">
+  <div class="side">
+    <div class="on f"><span class="gr" data-key="cpu" data-w="9" data-h="2" data-base=".28" data-vol=".05"></span><div><div class="n">CPU</div><div class="dim"><span data-num="cpu" data-unit="%"></span>  4.71 GHz</div></div></div>
+    <div class="f"><span class="gr" data-key="mem" data-w="9" data-h="2" data-base=".45" data-vol=".01" data-grad="mem"></span><div><div class="n">Memoria</div><div class="dim">14.2/31.3 GB (45%)</div></div></div>
+    <div class="f"><span class="gr" data-key="d0" data-w="9" data-h="2" data-base=".1" data-vol=".08" data-grad="disk"></span><div><div class="n">Disco 0 (nvme0n1)</div><div class="dim">SSD NVMe · <span data-num="d0" data-unit="%"></span></div></div></div>
+    <div class="f"><span class="gr" data-key="d1" data-w="9" data-h="2" data-base=".04" data-vol=".03" data-grad="disk"></span><div><div class="n">Disco 1 (sda)</div><div class="dim">HDD · <span data-num="d1" data-unit="%"></span></div></div></div>
+    <div class="f"><span class="gr" data-key="rx" data-w="9" data-h="2" data-base=".3" data-vol=".1" data-grad="net"></span><div><div class="n">Ethernet</div><div class="dim">enp5s0 · I: 0.9 R: 36 Mbps</div></div></div>
+    <div class="f"><span class="gr" data-key="wl" data-w="9" data-h="2" data-base=".05" data-vol=".03" data-grad="net"></span><div><div class="n">Wi-Fi</div><div class="dim">wlp6s0 · non connesso</div></div></div>
+    <div class="f"><span class="gr" data-key="gpu" data-w="9" data-h="2" data-base=".82" data-vol=".06" data-grad="gpu"></span><div><div class="n">GPU 0</div><div class="dim">Radeon RX 6800 · <span data-num="gpu" data-unit="%"></span></div></div></div>
+    <div class="f"><span class="gr" data-key="igpu" data-w="9" data-h="2" data-base=".04" data-vol=".02" data-grad="gpu"></span><div><div class="n">GPU 1</div><div class="dim">Raphael (iGPU) · 2%</div></div></div>
+    <div class="f"><span class="gr" data-key="bat" data-w="9" data-h="2" data-base=".2" data-vol=".02" data-grad="temp"></span><div><div class="n">Sensori</div><div class="dim">CPU 62°C · GPU 71°C</div></div></div>
+  </div>
+
+  <div style="min-width:0">
+    <div class="kv"><span class="big">CPU</span><span class="w">AMD Ryzen 9 7900X 12-Core Processor</span></div>
+    <div class="kv dim" style="margin-top:.4em"><span>% di utilizzo negli ultimi 60 secondi</span><span>100%</span></div>
+    <div class="frame"><div class="gr" data-key="cpu" data-w="121" data-h="18"></div></div>
+    <div class="kv dim"><span>60 s</span><span>0</span></div>
+
+    <div class="g" style="grid-template-columns:auto auto auto 1fr;gap:.5em 4ch;margin-top:.8em;align-items:start">
+      <div><div class="lab">Utilizzo</div><div class="bg pre w" data-big="cpu" data-unit="%"></div></div>
+      <div><div class="lab">Velocità</div><div class="bg pre w" data-txt="4.71" data-unit="GHz"></div></div>
+      <div><div class="lab">Temperatura</div><div class="bg pre c-yel" data-txt="62" data-unit="°C"></div></div>
+      <div class="g" style="grid-template-columns:auto auto;gap:0 3ch;grid-row:span 3;justify-self:end;white-space:nowrap">
+        <span class="lab">Velocità di base:</span><span>4.70 GHz</span>
+        <span class="lab">Socket:</span><span>1</span>
+        <span class="lab">Core:</span><span>12</span>
+        <span class="lab">Processori logici:</span><span>24</span>
+        <span class="lab">Virtualizzazione:</span><span>Sì (AMD-V)</span>
+        <span class="lab">Cache L1:</span><span>768 KB</span>
+        <span class="lab">Cache L2:</span><span>12,0 MB</span>
+        <span class="lab">Cache L3:</span><span>64,0 MB</span>
+        <span class="lab">Governor:</span><span>schedutil</span>
+      </div>
+      <div><div class="lab">Processi</div><div class="bg pre w" data-txt="412"></div></div>
+      <div><div class="lab">Thread</div><div class="bg pre w" data-txt="5321"></div></div>
+      <div><div class="lab">Descrittori file</div><div class="bg pre w" data-txt="18402"></div></div>
+      <div><div class="lab">Tempo di attività</div><div class="bg pre w" data-txt="3:04:12" data-unit="g:h:m"></div></div>
+      <div><div class="lab">Carico medio</div><div class="bg pre w" data-txt="2.41" data-unit="1.98 1.77"></div></div>
+      <div><div class="lab">Potenza pacchetto</div><div class="bg pre w" data-big="cpu" data-scale="160" data-off="20" data-unit="W"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="keys"><b>↑↓</b><span>Risorsa</span><b>←→</b><span>Scheda</span><b>L</b><span>Per processore logico</span><b>G</b><span>Intervallo 60s/5m/1h</span><b>C</b><span>Copia info</span><b>F2</b><span>Opzioni</span><b>q</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script><script>NG.start()</script>
+</body></html>

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 07 Albero processi</title><link rel="stylesheet" href="tui.css">
+<style>
+  .modal { left: 50ch; top: 15em; width: 60ch; }
+  .opt { white-space: pre; }
+  .opt.on { background: #f8514933; color: #fff; }
+</style></head>
+<body>
+<div id="nav" data-i="7"></div>
+<p class="desc">I processi in forma di <b>albero</b> (chi ha lanciato chi), con a destra il <b>dettaglio del processo selezionato</b> diviso in schede: generale, thread, file aperti, connessioni, variabili d'ambiente, limiti, cgroup. Premendo <b>F9</b> si apre la finestra per inviare un segnale (terminare, uccidere, sospendere…) e si può applicarlo anche a tutto il sottoalbero. Le azioni pericolose chiedono sempre conferma; quelle su processi di altri utenti richiedono i permessi di root.</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 172×46</span></div>
+<div class="scr" style="width:174ch">
+
+<div class="top"><span class="b c-proc">ngtop</span><span class="dim"> │ </span><div class="tabs" style="--c:var(--proc)"><span>Sistema</span><span>GPU</span><span class="on">Processi</span><span>Rete</span><span>Dischi</span><span>Sensori</span></div><span class="grow"></span><span class="dim">vista: </span><span class="w">albero</span><span class="dim"> │ </span><span data-clock></span></div>
+
+<div class="g" style="grid-template-columns:96ch 1fr">
+  <div class="panel" style="--c:var(--proc)"><span class="t">albero processi</span><span class="t tr">filtro: <span class="w">utente=alex</span> ✕</span><span class="t tb">43 processi · ▸ chiuso  ▾ aperto · Spazio piega</span>
+    <table class="pt" data-cols="pid,user,cpu,mem,gpu,name" data-rows="42" data-tree data-sel="2001"></table>
+  </div>
+
+  <div>
+    <div class="panel" style="--c:var(--net)"><span class="t">firefox · PID 2001</span><span class="t tr">alex</span>
+      <div class="tabs" style="--c:var(--net);margin-bottom:.4em"><span class="on">Generale</span><span>Thread 96</span><span>File 412</span><span>Rete 38</span><span>Ambiente</span><span>Limiti</span><span>cgroup</span></div>
+      <div class="pre"><span class="dim">Comando   </span>/usr/lib/firefox/firefox</div>
+      <div class="pre"><span class="dim">Cartella  </span>/home/alex</div>
+      <div class="pre"><span class="dim">Genitore  </span>1544 plasmashell</div>
+      <div class="pre"><span class="dim">Avviato   </span>oggi 07:41 <span class="dim">(1h 21m fa)</span></div>
+      <div class="pre"><span class="dim">Stato     </span><span class="c-grn">S (in attesa)</span>   <span class="dim">Nice</span> 0  <span class="dim">Prio</span> 20  <span class="dim">Sched</span> OTHER</div>
+      <div class="pre"><span class="dim">Affinità  </span>0-23   <span class="dim">ultimo core</span> 7</div>
+      <div class="pre"><span class="dim">cgroup    </span>app-firefox@a41f.scope</div>
+      <div class="pre"><span class="dim">Sandbox   </span>seccomp · namespace utente</div>
+    </div>
+    <div class="panel" style="--c:var(--cpu)"><span class="t">CPU</span><span class="t tr">totale sottoalbero 13.3%</span>
+      <div class="gr" data-key="ff" data-base=".15" data-vol=".06" data-w="70" data-h="4"></div>
+    </div>
+    <div class="panel" style="--c:var(--mem)"><span class="t">memoria e I/O</span>
+      <div class="g" style="grid-template-columns:1fr 1fr">
+        <div class="pre"><span class="dim">RSS  </span> 1.84 GiB</div><div class="pre"><span class="dim">Letti   </span> 2.1 GiB</div>
+        <div class="pre"><span class="dim">PSS  </span> 1.52 GiB</div><div class="pre"><span class="dim">Scritti </span> 640 MiB</div>
+        <div class="pre"><span class="dim">Cond.</span> 410 MiB</div><div class="pre"><span class="dim">L/s     </span> <span data-num="ffr" data-scale="2" data-dec="1" data-unit=" MB"></span></div>
+        <div class="pre"><span class="dim">Swap </span> 0</div><div class="pre"><span class="dim">S/s     </span> 0.1 MB</div>
+        <div class="pre"><span class="dim">VRAM </span> 420 MiB</div><div class="pre"><span class="dim">Rete    </span> ▼2.4 ▲0.3 Mb/s</div>
+      </div>
+      <div class="pre" style="margin-top:.3em"><span class="dim">Limite cgroup</span> <span class="mt" data-v="23" data-w="30" data-grad="used"></span> 1.84/8 GiB</div>
+    </div>
+    <div class="panel" style="--c:var(--line)"><span class="t">azioni</span>
+      <div class="pre"><span class="w">F9</span> segnale   <span class="w">F7/F8</span> nice   <span class="w">a</span> affinità   <span class="w">i</span> priorità I/O</div>
+      <div class="pre"><span class="w">l</span>  file aperti   <span class="w">s</span> strace   <span class="w">c</span> copia comando   <span class="w">o</span> apri cartella</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal"><span class="t" style="position:absolute;top:-.72em;left:1.5ch;background:var(--bg);padding:0 .5ch;color:var(--red);font-weight:700">Invia segnale</span>
+  <div class="pre">Processo: <span class="w b">2001 firefox</span> <span class="dim">e 3 figli</span></div>
+  <div class="pre dim" style="margin-bottom:.4em">/usr/lib/firefox/firefox</div>
+  <div class="opt">  ( ) 15 SIGTERM   chiedi di chiudersi (consigliato)</div>
+  <div class="opt on"> ▸(•)  9 SIGKILL   termina subito, senza salvare</div>
+  <div class="opt">  ( ) 19 SIGSTOP   sospendi</div>
+  <div class="opt">  ( ) 18 SIGCONT   riprendi</div>
+  <div class="opt">  ( )  1 SIGHUP    ricarica configurazione</div>
+  <div class="opt dim">      altri…</div>
+  <div class="pre" style="margin-top:.4em">  [x] applica a tutto il sottoalbero (4 processi)</div>
+  <div class="pre" style="margin-top:.6em;text-align:right"><span class="btn">Esc Annulla</span>  <span class="btn on">Invio Invia SIGKILL</span></div>
+</div>
+
+<div class="keys"><b>F3</b><span>Cerca</span><b>F4</b><span>Filtro</span><b>F5</b><span>Lista/Albero</span><b>Spazio</b><span>Piega ramo</span><b>Invio</b><span>Dettaglio</span><b>F7/F8</b><span>Nice</span><b>F9</b><span>Segnale</span><b>Esc</b><span>Chiudi</span><b>q</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script><script>NG.start()</script>
+</body></html>

@@ -1,0 +1,4 @@
+Inter-|   Receive
+ face |bytes    packets
+    lo: 100 1 0 0 0 0 0 0 100 1 0 0 0 0 0 0
+  eth0: 1500000 10 0 0 0 0 0 0 300000 5 0 0 0 0 0 0

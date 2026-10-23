@@ -1,0 +1,45 @@
+# Copyright (c) 2026 Nicola Fiorillo
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+"""User Manual, chapter 13 — glossary."""
+from build import dl
+
+CHAPTER = ("Glossary", [
+    ("Words used in this manual", dl([
+        ("Available memory", "The memory that programs can still get without swapping. It counts the free memory and the part of the cache the system "
+         "would give back."),
+        ("Braille characters", "Unicode characters (U+2800 to U+28FF) that each hold a small grid of eight dots. ngtop uses them to draw its graphs."),
+        ("Cache", "Memory that holds copies of files read from disk, to make the next reading faster. It is released when programs need it."),
+        ("cgroup", "A control group: the way Linux gathers processes to count and limit their memory and CPU. Systemd puts every service in its own."),
+        ("Compact layout", "The shorter form of the screen that ngtop uses below 100 columns or 30 rows."),
+        ("D3cold", "The deepest power-saving state of a PCI device, with the power fully cut. A graphics card in this state is not read."),
+        ("Discrete GPU", "A graphics card separate from the processor, with its own memory."),
+        ("Distribution", "A version of Linux: Debian, Ubuntu, Fedora, Arch, openSUSE…"),
+        ("ESTAB", "A TCP connection that is established and in use."),
+        ("File system", "The way data are organised on a disk: ext4, btrfs, xfs, vfat… Also what is mounted at a folder."),
+        ("Inode", "The entry that describes a file on a disk. A disk with no free inodes cannot take new files even when it has free space."),
+        ("Integrated GPU", "A graphics unit built into the processor, which shares the main memory."),
+        ("IOPS", "Input/output operations per second: how many reads and writes a disk does."),
+        ("Journal", "The log that systemd keeps for every service. ngtop reads it with journalctl."),
+        ("LISTEN", "A TCP socket that waits for incoming connections: a server."),
+        ("Load average", "The average number of processes that wanted a CPU, over the last 1, 5 and 15 minutes."),
+        ("Mount", "To attach a file system to a folder. A mounted file system appears in the " + "<i>filesystems</i> panel."),
+        ("nice", "A number from −20 to 19 on a process. The higher it is, the less CPU the process gets when the machine is busy."),
+        ("NVML", "NVIDIA's library to read its cards. A static program cannot load it cleanly, which is why NVIDIA support in ngtop is only planned."),
+        ("PID", "The number that identifies a process."),
+        ("pidfd", "A handle to a process that stays tied to that process even if its PID is reused. ngtop uses it to send signals safely."),
+        ("polkit", "The part of the system that decides whether a user may do an action, and that asks for the password."),
+        ("Process", "A running program. A process has a PID, an owner and one or more threads."),
+        ("PSS", "Proportional set size: the memory of a process with the shared pages divided among the processes that share them."),
+        ("RSS", "Resident set size: the part of a process's memory that is in RAM now."),
+        ("Signal", "A short message sent to a process: for example SIGTERM, \"please quit\", or SIGKILL, \"stop now\"."),
+        ("Socket", "One end of a network connection (or of a local connection between programs)."),
+        ("Subtree", "A process with all its children, grandchildren and so on."),
+        ("Swap", "Disk space used as an extension of memory. A lot of swap in use means the machine is short of memory."),
+        ("systemd", "The program that starts and supervises the services in most Linux distributions."),
+        ("Thread", "A flow of work inside a process. A process can have many."),
+        ("Truecolor", "A terminal that can show 16 million colours (24 bit)."),
+        ("Unit", "An item that systemd manages: a service, a socket, a timer, a mount…"),
+        ("VRAM", "The memory of a graphics card."),
+        ("Zombie", "A process that has ended but whose parent has not yet collected its result. It uses no CPU."),
+    ], "gloss")),
+])

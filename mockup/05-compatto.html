@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 05 Compatto</title><link rel="stylesheet" href="tui.css">
+<style>
+  .wrap { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+  .lbl { font: 13px system-ui, sans-serif; color: #8b949e; margin: 0 0 6px; }
+  .sep { color: var(--line); }
+  .tmux { background: #3fb950; color: #0b0f14; white-space: pre; display: flex; }
+  .tmux span { padding: 0 1ch; }
+  .tmux .d { background: #238636; color: #fff; }
+</style></head>
+<body>
+<div id="nav" data-i="5"></div>
+<p class="desc">Per terminali piccoli, SSH da telefono o finestre affiancate: in <b>80×24</b> tutto sta su una riga per risorsa, i 24 core diventano 24 caratteri (un "istogramma" verticale), e restano i processi principali. ngtop sceglie da solo il layout compatto quando la finestra è stretta. Sotto, la modalità <b>riga singola</b> (<code>ngtop --line</code>) pensata per la barra di stato di tmux, di i3/sway o del prompt.</p>
+
+<div class="wrap">
+<div>
+<p class="lbl">Terminale 80×24</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 80×24</span></div>
+<div class="scr" style="width:82ch">
+<div class="top"><span class="inv b"> ngtop </span><span> workstation  su 3g 04:12  carico 2.41</span><span class="grow"></span><span data-clock class="dim"></span></div>
+<div class="pre"><span class="b c-cpu">CPU</span> <span class="mt" data-key="cpu" data-base=".3" data-vol=".05" data-w="34"></span> <span data-num="cpu" data-pad="3" data-unit="%"></span> <span class="c-yel">62°</span> 4.7GHz <span id="cc"></span></div>
+<div class="pre"><span class="b c-mem">MEM</span> <span class="mt" data-v="45" data-w="34" data-grad="used"></span> 14.2/31.3G  <span class="dim">swp</span> 0.5/8G</div>
+<div class="pre"><span class="b c-gpu">GPU</span> <span class="mt" data-key="gpu" data-base=".86" data-vol=".05" data-w="34" data-grad="gpu"></span> <span data-num="gpu" data-pad="3" data-unit="%"></span> <span class="c-yel">71°</span> <span data-num="gpu" data-scale="220" data-unit="W"></span> <span class="dim">vram</span> 11.8/16G</div>
+<div class="pre"><span class="b c-net">NET</span> <span class="c-net">▼</span><span data-num="rx" data-scale="12" data-dec="1" data-pad="5" data-unit="M"></span> <span class="sp" data-key="rx" data-base=".35" data-vol=".1" data-w="13" data-grad="net"></span> <span style="color:#d2a8ff">▲</span><span data-num="tx" data-scale="4" data-dec="1" data-pad="5" data-unit="M"></span> <span class="sp" data-key="tx" data-base=".15" data-vol=".06" data-w="13" data-grad="up"></span> <span class="dim">enp5s0</span></div>
+<div class="pre"><span class="b c-disk">DSK</span> <span class="dim">L</span><span data-num="dr" data-base=".2" data-scale="40" data-dec="1" data-pad="5" data-unit="M"></span> <span class="dim">S</span><span data-num="dw" data-scale="25" data-dec="1" data-pad="5" data-unit="M"></span>  /  44%  /home 71%  <span class="c-red">/mnt/dati 93%</span></div>
+<div class="pre sep">────────────────────────────────────────────────────────────────────────────────</div>
+<table class="pt" data-cols="pid,user,cpu,mem,gpu,name" data-rows="13" data-selrow="0"></table>
+<div class="keys" style="margin-top:.2em"><b>h</b><span>Aiuto</span><b>/</b><span>Cerca</span><b>s</b><span>Ordina</span><b>t</b><span>Albero</span><b>k</b><span>Termina</span><b>q</b><span>Esci</span></div>
+</div></div>
+</div>
+
+<div>
+<p class="lbl">Riga singola — <code>ngtop --line</code> (formato configurabile)</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>tmux</span></div>
+<div class="scr" style="width:96ch">
+<div class="pre dim">alex@workstation:~/ngtop$ cargo build --release
+   Compiling ngtop v0.1.0 (/home/alex/ngtop)
+    Finished `release` profile [optimized] target(s) in 41.07s
+alex@workstation:~/ngtop$ <span class="w">▌</span>
+
+
+
+
+
+
+
+
+</div>
+<div class="tmux"><span class="d">[0] main</span><span>1:bash* 2:ssh</span><span style="flex:1"></span><span id="line1"></span></div>
+</div></div>
+
+<p class="lbl" style="margin-top:18px">Altri formati della riga singola</p>
+<div class="win"><div class="scr" style="width:96ch;padding:.5em 1ch">
+<div class="pre" id="line2"></div>
+<div class="pre" id="line3" style="margin-top:.4em"></div>
+<div class="pre" id="line4" style="margin-top:.4em"></div>
+</div></div>
+<p class="desc" style="margin-top:10px;font-size:13px">Esempio: <code>ngtop --line '{cpu.spark} {cpu}% │ {mem}% │ {gpu}% {gpu.temp}'</code>. Può anche uscire in JSON (<code>--json</code>) per waybar/polybar.</p>
+</div>
+</div>
+<script src="tui.js"></script>
+<script>
+const pc = k => (NG.cur(k) * 100).toFixed(0).padStart(2);
+const sp = (k, w, g) => NG.S[k].v.slice(-w).map(v => `<span style="color:${NG.grad(g, v)}">${NG.SP[Math.min(7, Math.floor(v * 8))]}</span>`).join('');
+NG.start(() => {
+  let c = '';
+  for (let i = 0; i < 24; i++) { const v = NG.cur('c' + i); c += `<span style="color:${NG.grad('cpu', v)}">${NG.SP[Math.min(7, Math.floor(v * 8))]}</span>`; }
+  document.getElementById('cc').innerHTML = c;
+  document.getElementById('line1').innerHTML = `CPU ${pc('cpu')}% │ MEM 45% │ GPU ${pc('gpu')}% 71° │ ▼${(NG.cur('rx') * 12).toFixed(1)}M ▲${(NG.cur('tx') * 4).toFixed(1)}M │ ${new Date().toLocaleTimeString('it-IT').slice(0, 5)}`;
+  document.getElementById('line2').innerHTML = `<span class="c-cpu">CPU</span> ${sp('cpu', 8, 'cpu')} ${pc('cpu')}%  <span class="c-mem">MEM</span> ${NG.bar(.45, 8, 'used')} 45%  <span class="c-gpu">GPU</span> ${sp('gpu', 8, 'gpu')} ${pc('gpu')}% <span class="c-yel">71°C</span>  <span class="c-net">NET</span> ${sp('rx', 8, 'net')}`;
+  document.getElementById('line3').innerHTML = `<span class="dim">⚡</span> ${pc('cpu')}% <span class="dim">·</span> 14.2G <span class="dim">·</span> ${pc('gpu')}%/11.8G <span class="dim">·</span> 62°/71° <span class="dim">·</span> ▼${(NG.cur('rx') * 12).toFixed(1)} ▲${(NG.cur('tx') * 4).toFixed(1)} MB/s`;
+  document.getElementById('line4').innerHTML = `<span class="dim">{"cpu":${pc('cpu').trim()},"mem":45.4,"gpu":[{"use":${pc('gpu').trim()},"vram":11.8,"temp":71}],"net":{"rx":${(NG.cur('rx') * 12).toFixed(1)},"tx":${(NG.cur('tx') * 4).toFixed(1)}}}</span>`;
+});
+</script>
+</body></html>

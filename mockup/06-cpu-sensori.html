@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 06 CPU e sensori</title><link rel="stylesheet" href="tui.css">
+<style>
+  .ccd { display: grid; grid-template-columns: repeat(6, 14ch); gap: .3em .5ch; }
+  .core { white-space: pre; padding: 0 .5ch; color: #fff; }
+  .core .k { color: #ffffffaa; }
+</style></head>
+<body>
+<div id="nav" data-i="6"></div>
+<p class="desc">Vista di dettaglio del processore e dei <b>sensori</b>. La <b>mappa di calore</b> mostra i core fisici divisi per chiplet (CCD), ciascuno con i suoi due thread, l'uso e la frequenza: il colore va dal verde scuro (fermo) al rosso (al massimo). A destra frequenze, governor, stati di risparmio (C-state), interrupt e cambi di contesto. Sotto, tutte le <b>temperature, ventole e tensioni</b> lette da hwmon, con soglie colorate, e il consumo <b>elettrico</b> (RAPL) con una stima del costo.</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 170×48</span></div>
+<div class="scr" style="width:172ch">
+
+<div class="top"><span class="b c-cpu">ngtop</span><span class="dim"> │ </span><div class="tabs" style="--c:var(--cpu)"><span>Sistema</span><span>GPU</span><span>Processi</span><span>Rete</span><span>Dischi</span><span class="on">CPU e sensori</span></div><span class="grow"></span><span data-clock></span></div>
+
+<div class="g" style="grid-template-columns:90ch 1fr">
+  <div class="panel" style="--c:var(--cpu)"><span class="t">mappa core</span><span class="t tr">riquadro = core fisico · T = thread</span>
+    <div class="pre dim">CCD 0 · L3 32 MB                                                    <span class="c-yel">Tccd1 64°C</span></div>
+    <div class="ccd" id="ccd0"></div>
+    <div class="pre dim" style="margin-top:.5em">CCD 1 · L3 32 MB                                                    <span class="c-yel">Tccd2 58°C</span></div>
+    <div class="ccd" id="ccd1"></div>
+    <div class="pre dim" style="margin-top:.5em">scala  <span id="scale"></span>  0% → 100%      <span class="w">●</span> core preferito (CPPC)</div>
+  </div>
+  <div>
+    <div class="panel" style="--c:var(--cpu)"><span class="t">frequenze e stato</span>
+      <div class="g" style="grid-template-columns:1fr 1fr">
+        <div class="pre"><span class="dim">Driver   </span> amd-pstate-epp</div>
+        <div class="pre"><span class="dim">Governor </span> powersave <span class="dim">‹ ›</span></div>
+        <div class="pre"><span class="dim">EPP      </span> balance_performance</div>
+        <div class="pre"><span class="dim">Boost    </span> <span class="c-grn">attivo</span></div>
+        <div class="pre"><span class="dim">Freq. min</span> 545 MHz</div>
+        <div class="pre"><span class="dim">Freq. max</span> 5733 MHz</div>
+        <div class="pre"><span class="dim">Media    </span> <span data-num="cpu" data-scale="2600" data-off="3000" data-unit=" MHz"></span></div>
+        <div class="pre"><span class="dim">Picco    </span> 5612 MHz <span class="dim">(C3)</span></div>
+      </div>
+      <div class="pre" style="margin-top:.4em"><span class="dim">C-state  </span>C0 <span class="mt" data-key="cpu" data-base=".3" data-vol=".05" data-w="14" data-grad="cpu"></span> <span data-num="cpu" data-pad="2" data-unit="%"></span>  C1 <span class="mt" data-v="12" data-w="6" data-grad="net"></span> 12%  C6 <span class="mt" data-v="58" data-w="10" data-grad="net"></span> 58%</div>
+    </div>
+    <div class="panel" style="--c:var(--cpu)"><span class="t">attività del kernel</span>
+      <div class="pre"><span class="dim">Interrupt/s    </span><span class="sp" data-key="irq" data-base=".4" data-vol=".1" data-w="30" data-grad="cpu"></span> <span data-num="irq" data-scale="60000"></span></div>
+      <div class="pre"><span class="dim">Cambi contesto </span><span class="sp" data-key="ctx" data-base=".5" data-vol=".1" data-w="30" data-grad="cpu"></span> <span data-num="ctx" data-scale="140000"></span></div>
+      <div class="pre"><span class="dim">Fork/s         </span><span class="sp" data-key="fork" data-base=".1" data-vol=".06" data-w="30" data-grad="cpu"></span> <span data-num="fork" data-scale="200"></span></div>
+      <div class="pre"><span class="dim">Carico 1/5/15  </span><span class="sp" data-key="load" data-base=".2" data-vol=".03" data-w="30" data-grad="cpu"></span> 2.41 1.98 1.77</div>
+      <div class="pre"><span class="dim">PSI cpu/mem/io </span>some 4.1% · 0.0% · 0.6%</div>
+    </div>
+  </div>
+</div>
+
+<div class="g" style="grid-template-columns:1fr 1fr 52ch">
+  <div class="panel" style="--c:var(--yel)"><span class="t">temperature</span><span class="t tr">hwmon</span>
+    <div id="temps"></div>
+  </div>
+  <div class="panel" style="--c:var(--net)"><span class="t">ventole e tensioni</span><span class="t tr">nct6799</span>
+    <div class="pre"><span class="dim">CPU_FAN    </span><span class="mt" data-v="42" data-w="16" data-grad="net"></span>  1120 RPM</div>
+    <div class="pre"><span class="dim">SYS_FAN1   </span><span class="mt" data-v="35" data-w="16" data-grad="net"></span>   890 RPM</div>
+    <div class="pre"><span class="dim">SYS_FAN2   </span><span class="mt" data-v="35" data-w="16" data-grad="net"></span>   884 RPM</div>
+    <div class="pre"><span class="dim">PUMP       </span><span class="mt" data-v="70" data-w="16" data-grad="net"></span>  2650 RPM</div>
+    <div class="pre"><span class="dim">GPU        </span><span class="mt" data-v="48" data-w="16" data-grad="net"></span>  1650 RPM</div>
+    <div class="pre dim">────────────────────────────────────────────</div>
+    <div class="pre"><span class="dim">Vcore      </span>1.284 V   <span class="dim">VSOC</span>  1.250 V</div>
+    <div class="pre"><span class="dim">+12V       </span>12.096 V  <span class="dim">+5V </span>  5.040 V</div>
+    <div class="pre"><span class="dim">+3.3V      </span>3.344 V   <span class="dim">VBAT</span>  <span class="c-yel">2.976 V</span></div>
+  </div>
+  <div class="panel" style="--c:var(--proc)"><span class="t">energia</span><span class="t tr">RAPL + amdgpu</span>
+    <div class="gr" data-key="pkg" data-base=".45" data-vol=".06" data-w="48" data-h="4" data-grad="wr"></div>
+    <div class="pre" style="margin-top:.3em"><span class="dim">CPU pacchetto</span> <span data-num="pkg" data-scale="180" data-pad="4" data-unit=" W"></span>  <span class="dim">core</span> <span data-num="pkg" data-scale="130" data-pad="3" data-unit=" W"></span></div>
+    <div class="pre"><span class="dim">GPU          </span> <span data-num="gpu" data-base=".86" data-scale="220" data-pad="4" data-unit=" W"></span></div>
+    <div class="pre"><span class="dim">Totale stimato</span> <span class="w b">~ 360 W</span> <span class="dim">(senza schermi)</span></div>
+    <div class="pre"><span class="dim">Oggi         </span> 2.41 kWh · <span class="c-yel">≈ 0.60 €</span> <span class="dim">a 0.25 €/kWh</span></div>
+  </div>
+</div>
+
+<div class="keys"><b>↑↓←→</b><span>Scegli core</span><b>Invio</b><span>Processi sul core</span><b>a</b><span>Affinità</span><b>g</b><span>Governor</span><b>u</b><span>°C/°F</span><b>F2</b><span>Soglie</span><b>q</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script>
+<script>
+const H = ['#0f2a14', '#1d5c2a', '#8a6a00', '#b2461b', '#d1242f'];
+const temps = [
+  ['Tctl (CPU)', 'tctl', .62, 95], ['Tccd1', 't1', .64, 95], ['Tccd2', 't2', .58, 95], ['GPU bordo', 'ge', .71, 100],
+  ['GPU giunzione', 'gj', .84, 110], ['GPU memoria', 'gm', .78, 105], ['NVMe nvme0', 'nv', .46, 80], ['Chipset', 'ch', .55, 90],
+  ['VRM', 'vrm', .51, 105], ['DIMM A2', 'd1', .44, 85], ['DIMM B2', 'd2', .46, 85],
+];
+temps.forEach(([, k, b]) => NG.series(k, b * .85, .01));
+NG.series('gpu', .86, .05);
+NG.start(() => {
+  for (const [ccd, base] of [[0, 0], [1, 6]]) {
+    let h = '';
+    for (let i = base; i < base + 6; i++) {
+      const a = NG.cur('c' + i), b = NG.cur('c' + (i + 12)), v = (a + b) / 2;
+      const star = i === 2 ? ' ●' : '  ';
+      h += `<div class="core" style="background:${NG.grad(H, v)}"><span class="k">C${String(i).padEnd(2)}${star}</span>\n${(v * 100).toFixed(0).padStart(3)}%   ${(3 + v * 2.6).toFixed(1)}G\n<span class="k">T${String(i).padEnd(2)}${(a * 100).toFixed(0).padStart(3)} T${String(i + 12).padEnd(2)}${(b * 100).toFixed(0).padStart(3)}</span></div>`;
+    }
+    document.getElementById('ccd' + ccd).innerHTML = h;
+  }
+  document.getElementById('scale').innerHTML = [...Array(20)].map((_, i) => `<span style="background:${NG.grad(H, i / 19)}"> </span>`).join('');
+  document.getElementById('temps').innerHTML = temps.map(([n, k, , crit]) => {
+    const c = Math.round(NG.cur(k) / .85 * 100 * .85 + 10), f = c / crit;
+    const col = f > .8 ? 'c-red' : f > .65 ? 'c-yel' : '';
+    const sp = NG.S[k].v.slice(-10).map(v => NG.SP[Math.min(7, Math.floor(((v - .3) / .6) * 8))] || '▁').join('');
+    return `<div class="pre"><span class="dim">${n.padEnd(14)}</span>${NG.bar(f, 14, 'temp')} <span class="${col}">${String(c).padStart(3)}°C</span> <span class="dim">${sp}</span> <span class="faint">/${crit}</span></div>`;
+  }).join('');
+});
+</script>
+</body></html>

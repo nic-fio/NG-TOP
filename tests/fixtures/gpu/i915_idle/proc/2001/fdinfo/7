@@ -1,0 +1,11 @@
+drm-driver:	i915
+drm-client-id:	20
+drm-pdev:	0000:00:02.0
+drm-total-system0:	456216 KiB
+drm-resident-system0:	1000 KiB
+drm-resident-stolen-system0:	9 KiB
+drm-engine-render:	1100000000 ns
+drm-engine-copy:	0 ns
+drm-engine-video:	200000000 ns
+drm-engine-capacity-video:	1
+drm-engine-video-enhance:	0 ns

@@ -1,0 +1,23 @@
+[package]
+name = "ngtop"
+version = "0.1.0"
+edition = "2024"
+description = "Terminal system monitor: CPU, memory, GPU, network, disks, processes and services in one static binary"
+license = "PolyForm-Noncommercial-1.0.0"
+authors = ["Nicola Fiorillo"]
+homepage = "https://ngtop.nicfio.it"
+
+[dependencies]
+crossterm = "0.29.0"
+ratatui = "0.30.2"
+rustix = { version = "1.1.5", features = ["fs", "param", "process"] }
+serde_json = "1.0.154"
+signal-hook = "0.3"
+unicode-width = "0.2.2"
+zbus = "5"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

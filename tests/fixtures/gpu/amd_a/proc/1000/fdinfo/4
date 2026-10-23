@@ -1,0 +1,11 @@
+pos:	0
+flags:	02
+drm-driver:	amdgpu
+drm-client-id:	7
+drm-pdev:	0000:03:00.0
+drm-memory-vram:	4194304 KiB
+drm-memory-gtt:	100 KiB
+drm-engine-gfx:	10000000000 ns
+drm-engine-compute:	0 ns
+drm-engine-dma:	0 ns
+drm-engine-enc:	0 ns

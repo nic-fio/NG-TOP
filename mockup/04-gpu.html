@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 04 GPU</title><link rel="stylesheet" href="tui.css">
+<style>#pt{--cw:46ch}</style></head>
+<body>
+<div id="nav" data-i="4"></div>
+<p class="desc">Vista dedicata alle <b>GPU</b>, alla maniera di nvtop: una scheda per ogni dispositivo (AMD, NVIDIA, Intel, anche integrate) con clock, temperature, ventola, potenza, PCIe, uso e VRAM; i grafici storici di uso e memoria; il dettaglio dei <b>motori</b> (3D, calcolo, copia, codifica/decodifica video); infine solo i processi che stanno usando una GPU, con il tipo di lavoro e la VRAM occupata. Tasto <b>d</b> per scegliere quale GPU mostrare nei grafici.</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 170×46</span></div>
+<div class="scr" style="width:172ch">
+
+<div class="top"><span class="b c-gpu">ngtop</span><span class="dim"> │ </span><div class="tabs" style="--c:var(--gpu)"><span>Sistema</span><span class="on">GPU</span><span>Processi</span><span>Rete</span><span>Dischi</span><span>Sensori</span></div><span class="grow"></span><span class="dim">driver amdgpu 7.3 · Mesa 26.2 · ROCm 7.1 │ </span><span data-clock></span></div>
+
+<div class="g" style="grid-template-columns:1fr 1fr">
+  <div class="panel" style="--c:var(--gpu)"><span class="t">GPU 0 · AMD Radeon RX 6800</span><span class="t tr">Navi 21 · 16 GiB · 0000:03:00.0</span>
+    <div class="pre"><span class="dim">PCIe</span> 4.0 ×16  <span class="dim">RX</span> 1.2 GiB/s  <span class="dim">TX</span> 210 MiB/s   <span class="dim">Clock</span> 2405 MHz <span class="dim">Mem</span> 1000 MHz</div>
+    <div class="pre"><span class="dim">Temp</span> <span class="c-yel">71°C</span> <span class="dim">giunz.</span> <span class="c-red">84°C</span> <span class="dim">mem</span> 78°C   <span class="dim">Ventola</span> 48% 1650 RPM   <span class="dim">Pot.</span> <span data-num="gpu" data-scale="220" data-pad="3"></span>/203 W</div>
+    <div class="pre" style="margin-top:.3em">GPU  [<span class="mt" data-key="gpu" data-base=".86" data-vol=".05" data-w="18" data-grad="gpu"></span>] <span data-num="gpu" data-pad="3" data-unit="%"></span>   VRAM [<span class="mt" data-v="74" data-w="16" data-grad="gpu"></span>] 11.8/16.0 GiB</div>
+    <div class="pre">ENC  [<span class="mt" data-key="enc" data-base=".34" data-vol=".04" data-w="18" data-grad="up"></span>] <span data-num="enc" data-pad="3" data-unit="%"></span>   DEC  [<span class="mt" data-v="0" data-w="16" data-grad="up"></span>]   0%  GTT 0.4 GiB</div>
+  </div>
+  <div class="panel" style="--c:#7d8590"><span class="t">GPU 1 · AMD Raphael (integrata)</span><span class="t tr">512 MiB UMA · 0000:12:00.0</span>
+    <div class="pre"><span class="dim">PCIe</span> —            <span class="dim">Clock</span> 400 MHz <span class="dim">Mem</span> 2400 MHz   <span class="dim">stato</span> D3cold <span class="dim">(spenta)</span></div>
+    <div class="pre"><span class="dim">Temp</span> 48°C   <span class="dim">Ventola</span> —   <span class="dim">Pot.</span> 3/— W</div>
+    <div class="pre" style="margin-top:.3em">GPU  [<span class="mt" data-key="igpu" data-base=".03" data-vol=".02" data-w="18" data-grad="gpu"></span>] <span data-num="igpu" data-pad="3" data-unit="%"></span>   VRAM [<span class="mt" data-v="9" data-w="16" data-grad="gpu"></span>] 0.05/0.5 GiB</div>
+    <div class="pre">ENC  [<span class="mt" data-v="0" data-w="18" data-grad="up"></span>]   0%   DEC  [<span class="mt" data-v="12" data-w="16" data-grad="up"></span>]  12%  GTT 0.2 GiB</div>
+  </div>
+</div>
+
+<div class="g" style="grid-template-columns:1fr 48ch">
+  <div class="panel" style="--c:var(--gpu)"><span class="t">cronologia GPU 0</span><span class="t tr"><span class="c-gpu">━ uso</span>  <span class="c-mem">━ VRAM</span>  <span class="c-yel">━ temp</span>   ‹ 2 min ›</span>
+    <div class="g" style="grid-template-columns:5ch 1fr">
+      <div class="pre dim">100%
+
+
+ 50%
+
+
+
+  0%</div>
+      <div class="gr" data-key="gpu" data-w="108" data-h="8" data-grad="gpu"></div>
+      <div class="pre dim">VRAM</div>
+      <div class="gr" data-key="vram" data-w="108" data-h="3" data-base=".74" data-vol=".01" data-grad="mem"></div>
+      <div class="pre dim">°C</div>
+      <div class="sp" data-key="gtemp" data-base=".7" data-vol=".02" data-w="108" data-grad="temp"></div>
+    </div>
+  </div>
+  <div>
+    <div class="panel" style="--c:var(--gpu)"><span class="t">motori · GPU 0</span>
+      <div class="pre">3D / gfx     <span class="mt" data-key="gpu" data-w="18" data-grad="gpu"></span> <span data-num="gpu" data-pad="3" data-unit="%"></span></div>
+      <div class="pre">Calcolo      <span class="mt" data-key="comp" data-base=".12" data-vol=".05" data-w="18" data-grad="gpu"></span> <span data-num="comp" data-pad="3" data-unit="%"></span></div>
+      <div class="pre">Copia (DMA)  <span class="mt" data-key="dma" data-base=".08" data-vol=".04" data-w="18" data-grad="gpu"></span> <span data-num="dma" data-pad="3" data-unit="%"></span></div>
+      <div class="pre">VCN codif.   <span class="mt" data-key="enc" data-w="18" data-grad="up"></span> <span data-num="enc" data-pad="3" data-unit="%"></span></div>
+      <div class="pre">VCN decod.   <span class="mt" data-v="0" data-w="18" data-grad="up"></span>   0%</div>
+    </div>
+    <div class="panel" style="--c:var(--yel)"><span class="t">energia</span>
+      <div class="pre">Potenza  <span class="sp" data-key="gpu" data-w="22" data-grad="cpu"></span> <span data-num="gpu" data-scale="220" data-pad="3" data-unit=" W"></span></div>
+      <div class="pre">Limite   203 W <span class="dim">(max 230 W)</span> · OD off</div>
+      <div class="pre">Profilo  <span class="w">3D_FULL_SCREEN</span> <span class="dim">‹ ›</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="--c:var(--proc)"><span class="t">processi GPU</span><span class="t tr">ordina: ‹ VRAM ›  7 processi · 13.2 GiB</span>
+  <table class="pt" id="pt" data-cols="pid,user,dev,gtype,gpu,gbar,enc,vram,cpu,mem,name,cmd" data-rows="8" data-sort="vram" data-filter="gpu" data-selrow="0"></table>
+</div>
+
+<div class="keys"><b>d</b><span>Dispositivo</span><b>F2</b><span>Opzioni</span><b>F6</b><span>Ordina</span><b>F9</b><span>Segnale</span><b>p</b><span>Profilo potenza</span><b>+/-</b><span>Intervallo</span><b>Tab</b><span>Vista</span><b>q</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script><script>NG.start()</script>
+</body></html>

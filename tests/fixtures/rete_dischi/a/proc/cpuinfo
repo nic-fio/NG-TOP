@@ -1,0 +1,10 @@
+processor	: 0
+model name	: Fake CPU @ 3GHz
+physical id	: 0
+core id		: 0
+
+processor	: 1
+model name	: Fake CPU @ 3GHz
+physical id	: 0
+core id		: 0
+

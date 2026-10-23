@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · mockup</title><link rel="stylesheet" href="tui.css"></head>
+<body>
+<div id="nav" style="margin-bottom:4px"><h1>ngtop — 10 mockup dell'interfaccia</h1></div>
+<p class="desc">Monitor di sistema da terminale che unisce <b>btop</b> (CPU, memoria, rete, dischi, processi) e <b>nvtop</b> (GPU), con l'organizzazione del <b>Gestore attività di Windows</b>. Binario unico statico (gira su qualsiasi distribuzione). Ogni mockup è disegnato a celle di carattere come in un vero terminale: i numeri si aggiornano ogni secondo con dati finti. Non sono alternative esclusive: molte schermate possono convivere come <b>schede</b> della stessa app; servono a scegliere stile, densità e funzioni.</p>
+<a class="card" href="app.html" style="max-width:1400px;margin-bottom:14px;border-color:#1f6feb"><h2><span>★</span>App completa</h2><p>Le sezioni scelte unite in un'unica interfaccia: Panoramica (01, con formato compatto 05 per terminali piccoli), GPU (04), Processi (07), Rete e dischi (08), Servizi (09).</p></a>
+<div class="cards" id="cards"></div>
+<p class="desc" style="margin-top:22px">Elementi comuni a tutti: tastiera stile htop (F1–F10) più scorciatoie a lettera, <b>mouse</b> (clic su schede, colonne e processi, rotella per scorrere), temi colore, intervallo di aggiornamento regolabile, layout che si adatta alla dimensione del terminale.</p>
+<script src="tui.js"></script>
+<script>
+const D = [
+  'Tutto in una schermata: grafico CPU con i 24 core, memoria, GPU, rete, dischi e la lista dei processi con colonne GPU/VRAM.',
+  'Come la scheda Prestazioni di Windows: elenco risorse a sinistra, grafico grande e numeri principali della risorsa scelta.',
+  'Come la scheda Processi di Windows: App / background / sistema, gruppi espandibili, celle colorate in base al consumo.',
+  'Stile nvtop: scheda per ogni GPU (clock, temperature, potenza, PCIe), storico, motori 3D/calcolo/video, processi GPU.',
+  'Per terminali piccoli e SSH: 80×24 con una riga per risorsa; più la modalità riga singola per tmux e barre di stato.',
+  'Mappa di calore dei core per chiplet, frequenze e governor, attività del kernel, tutte le temperature, ventole, tensioni, consumo in watt.',
+  'Albero dei processi, scheda dettagliata del processo scelto (memoria, I/O, cgroup, file, rete) e finestra per inviare segnali.',
+  'Interfacce di rete con grafici a specchio, connessioni con il processo proprietario, I/O per disco e filesystem.',
+  'Servizi systemd con stato e registro, tempi di avvio e servizi lenti, utenti e sessioni collegate.',
+  'Storico registrato in sottofondo con cursore temporale, eventi automatici (surriscaldamenti, OOM, servizi falliti), consumo per app.',
+];
+document.getElementById('cards').innerHTML = NG.PAGES.map(([f, n], i) =>
+  `<a class="card" href="${f}"><h2><span>${String(i + 1).padStart(2, '0')}</span>${n}</h2><p>${D[i]}</p></a>`).join('');
+</script>
+</body></html>

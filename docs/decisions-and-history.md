@@ -1,0 +1,195 @@
+# ngtop — Design decisions and project history
+
+This document records **why** ngtop is the way it is: the decisions taken while
+designing and building it, and the history of the project. It complements the
+[user manual](User%20Manual.html) (what ngtop does) and the
+[technical manual](Technical%20Manual.html) (how it is built).
+
+Decisions were discussed with the project owner in Italian. The interface and
+the manuals are in English (D12).
+
+**Format of each decision:** context → decision → consequences. Status is
+*accepted* unless noted otherwise.
+
+---
+
+## Contents
+
+1. [Goals](#1-goals)
+2. [Decisions](#2-decisions)
+3. [History](#3-history)
+4. [Open questions and known gaps](#4-open-questions-and-known-gaps)
+
+---
+
+## 1. Goals
+
+ngtop is a system monitor for the terminal that joins what `btop`, `nvtop` and
+the Windows Task Manager each show in part: CPU, memory, GPUs, processes,
+network, disks and services, in one program. Working rules:
+
+- **One file to copy.** A single executable, with nothing to install on the
+  machine that runs it (D1).
+- **Look before building.** The interface was drawn as HTML mockups and chosen
+  by the owner before the Rust code was written (D4).
+- **Light on the machine it watches.** A monitor must not be the busiest
+  process (D9).
+- **Careful with actions.** Signals and service commands act on the real
+  system, so they are checked at the moment they are sent (D7, D8).
+
+---
+
+## 2. Decisions
+
+### D1. One static binary
+
+- **Context.** A monitor is most useful on a machine that is already in
+  trouble, where installing packages may not be possible or wise.
+- **Decision.** Rust built for `x86_64-unknown-linux-musl` and linked
+  statically (`./build.sh` produces `dist/ngtop`, checked with `ldd`). It runs
+  on any Linux x86_64. `scripts/test-distro.sh` runs it in containers; it was
+  tested on Ubuntu 24.04, Debian 12, Debian 10, Fedora 41, Arch, Alpine 3.20,
+  openSUSE Tumbleweed and CentOS 7.
+- **Consequences.** Anything that needs a dynamic library is out of reach (D2,
+  D5). Where an old kernel lacks a call, ngtop has a fallback (D7).
+
+### D2. Rust with ratatui and crossterm; pure-Rust dependencies only
+
+- **Context.** A crate that compiles C code pulls in a C library and a C
+  toolchain, and breaks the static build.
+- **Decision.** The interface uses `ratatui` and `crossterm`. System calls go
+  through `rustix`. D-Bus is spoken by `zbus` instead of `libsystemd`. Every
+  dependency must be pure Rust.
+- **Consequences.** The rule is written in `CLAUDE.md`. The licence notices of
+  the included crates are collected in `THIRD-PARTY-LICENSES`.
+
+### D3. Read the kernel interfaces directly
+
+- **Decision.** The collectors read `/proc`, `/sys` and the DRM `fdinfo` files
+  themselves. They call no external tool, need no daemon and, for the common
+  case, no root. Missing data or a denied permission give "—", never a panic.
+  The root of `/proc` and `/sys` is a parameter, so the tests run on fake trees
+  in `tests/fixtures/`.
+
+### D4. The interface: five sections
+
+- **Context.** Ten HTML mockups were drawn in `mockup/`.
+- **Decision.** The owner chose five sections: **Overview** (mockup 01) as the
+  main page, **GPU** (04), **Processes** as a tree (07), **Network & Disks**
+  (08) and **Services** (09). The compact layout (05) is not a section: it is
+  used automatically when the terminal is narrower than 100 columns or lower
+  than 30 rows.
+- **Consequences.** `mockup/app.html` is the visual reference. The other
+  mockups were not built as pages of their own.
+
+### D5. GPUs: AMD and Intel first, NVIDIA detected only
+
+- **Decision.** AMD (`amdgpu`) and Intel (`i915`, `xe`) are read fully. NVIDIA
+  cards are detected and listed, nothing more.
+- **Reason.** NVIDIA's data comes from NVML, a dynamic library that a static
+  binary cannot load cleanly (D1).
+- **Consequences.** Full NVIDIA support is planned (section 4).
+
+### D6. Never wake a sleeping discrete GPU
+
+- **Context.** Reading the sysfs files of a discrete GPU in runtime power
+  management wakes it, which costs power and defeats the point of letting it
+  sleep.
+- **Decision.** A suspended discrete GPU is shown as suspended and none of its
+  device files is read. Integrated GPUs are always read: their runtime PM
+  switches on and off continuously while they are in use, so there is nothing
+  to save.
+
+### D7. Signals that cannot reach the wrong process
+
+- **Context.** A PID can be reused between the moment the user selects a
+  process and the moment the signal is sent.
+- **Decision.** ngtop opens a `pidfd` (`pidfd_open`), re-reads the start time of
+  the process from `/proc/PID/stat`, compares it with the one on screen, and
+  only then calls `pidfd_send_signal`; the pidfd stays bound to that process
+  even if the PID is reused. The subtree is recomputed and verified at the
+  moment of sending. The subtrees of PID 1 and PID 2 are forbidden, because they
+  are nearly the whole system. A second confirmation is asked above 50
+  processes and for processes of other users. Without `pidfd` (kernel older than
+  5.3, or no permission) ngtop checks and then uses `kill`.
+- **Consequences.** Failures are reported in words ("the process no longer
+  exists", "the pid now belongs to another process").
+
+### D8. Services through D-Bus in a worker thread
+
+- **Decision.** systemd is queried over D-Bus by a worker thread, so the screen
+  never waits for it. Queries have a time limit of 10 s; actions (which may wait
+  for polkit authentication) 120 s. The journal is read with `journalctl`, run
+  with a time limit (15 s).
+- **Consequences.** A stuck systemd shows up as a timeout, not a frozen screen.
+
+### D9. Performance budget
+
+- **Decision.** About 1 % of one CPU at the default 1 s refresh. Command lines,
+  user names and file descriptors are cached between cycles; `statvfs` runs in
+  threads, so a hung NFS mount cannot freeze the screen.
+- **Consequences.** Measured on an Intel N100 with `--bench` and `--bench-start`:
+  about 8–11 ms per cycle and about 25–30 ms to the first frame; about 1 % CPU
+  at the default 1 s refresh and about 5.6 MB of RAM.
+
+### D10. Time zone read from the system files
+
+- **Decision.** The local time zone comes from `TZ` or `/etc/localtime`, parsed
+  by an in-house TZif (v1, v2, v3) parser with no C library. It is hardened
+  against corrupt files (inconsistent counts are rejected); on any error the
+  zone is UTC.
+- **Consequences.** Dates are shown as `2026-10-20 07:30`.
+
+### D11. Colours
+
+- **Decision.** The palette is truecolor, taken from the mockups. When the
+  terminal needs it, ngtop converts to 256 or 16 colours. The mode comes from
+  the setting or, failing that, from `COLORTERM` and `TERM`.
+
+### D12. English interface and manuals; licence
+
+- **Decision.** The interface, the help (F1), the messages and the manuals are
+  in English, like the author's other projects. Code comments are in Italian.
+  The licence is PolyForm Noncommercial 1.0.0; commercial licences on request
+  at ngtop@nicfio.it. Source files carry an SPDX header.
+
+### D13. Configuration
+
+- **Decision.** `~/.config/ngtop/config.toml` is read by a small hand-written
+  parser (no TOML crate), enough for the few keys ngtop has. The **W** key
+  writes the current interval and section (the other lines are kept)
+  atomically (temporary file, `sync`, `rename`).
+
+### D14. Website
+
+- **Decision.** https://ngtop.nicfio.it. The owner chose the direction
+  "Daylight" among ten proposals; the others were deleted. The terminal on the
+  page is live, with sample data.
+- **Consequences.** The site is published by `site/publish.sh`.
+
+---
+
+## 3. History
+
+All work took place on 2026-10-23, in phases. Every step of the plan ended with
+an independent review before the next began.
+
+| Phase | What happened |
+|---|---|
+| **1. Mockups** | Ten HTML mockups of the interface in `mockup/`; the owner chose five sections (D4). |
+| **2. Plan** | A written plan in eight steps, approved by the owner. |
+| **3. Steps 1–8** | 1 collectors; 2 TUI frame; 3 Overview; 4 GPU; 5 Processes; 6 Network & Disks; 7 Services; 8 finishing touches. |
+| **4. Parallel work** | Steps 3–5 were written by three programmers in parallel, each on a separate copy of the project, and joined with a three-way merge. |
+| **5. Distributions** | Tests on eight distributions with `scripts/test-distro.sh` (D1). |
+| **6. Website** | Ten proposals, direction "Daylight" chosen; site published (D14). |
+| **7. English and manuals** | Interface moved to English, licence set (D12), user and technical manuals written, with this document. |
+
+---
+
+## 4. Open questions and known gaps
+
+| Topic | Status |
+|---|---|
+| NVIDIA | Detected only (D5). Full support planned. |
+| Architectures | x86_64 only. |
+| Real hardware | Measured on an Intel N100 machine and tested in containers on eight distributions; other hardware, especially other GPUs, is unverified. |

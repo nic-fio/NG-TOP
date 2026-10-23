@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 09 Servizi</title><link rel="stylesheet" href="tui.css">
+<style>
+  .lt { border-collapse: collapse; width: 100%; }
+  .lt th { color: var(--dim); font-weight: 400; text-align: left; padding: 0 1ch 0 0; white-space: pre; }
+  .lt td { padding: 0 1ch 0 0; white-space: pre; }
+  .lt .r { text-align: right; }
+  .lt tr.sel td { background: #1f6feb66; color: #fff; }
+  .chip { padding: 0 1ch; background: #21262d; }
+  .chip.on { background: var(--net); color: #0b0f14; font-weight: 700; }
+  .log div { white-space: pre; overflow: hidden; }
+</style></head>
+<body>
+<div id="nav" data-i="9"></div>
+<p class="desc">Equivalente delle schede <b>Servizi</b>, <b>Avvio</b> e <b>Utenti</b> di Windows, ma per Linux: l'elenco dei servizi <b>systemd</b> (di sistema e dell'utente) con stato, avvio automatico, memoria e CPU; i servizi falliti in rosso. A destra il dettaglio del servizio scelto con le ultime righe del suo <b>registro</b> (journal). In basso quanto tempo ha richiesto l'avvio del PC e quali servizi l'hanno rallentato, e chi è collegato al sistema. Avviare/fermare/riavviare chiede la password (polkit).</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 176×46</span></div>
+<div class="scr" style="width:178ch">
+
+<div class="top" style="margin:.3em 0 .4em"><span class="b c-net"> ngtop </span><div class="tabs"><span>Processi</span><span>Prestazioni</span><span>Cronologia</span><span>Avvio</span><span>Utenti</span><span>Dettagli</span><span class="on">Servizi</span></div><span class="grow"></span><span data-clock class="dim"></span></div>
+
+<div class="g" style="grid-template-columns:104ch 1fr">
+  <div class="panel" style="--c:var(--net)"><span class="t">unità systemd</span><span class="t tr">/ docker_</span>
+    <div class="top" style="gap:1ch;margin-bottom:.4em"><span class="chip">Tutti 312</span><span class="chip on">Attivi 148</span><span class="chip" style="color:var(--red)">Falliti 2</span><span class="chip">Abilitati 96</span><span class="chip">Timer 18</span><span class="chip">Socket 31</span><span class="grow"></span><span class="dim">‹ sistema │ utente ›</span></div>
+    <table class="lt">
+      <tr><th>Unità</th><th>Descrizione</th><th>Stato</th><th>Avvio</th><th class="r">PID</th><th class="r">Mem</th><th class="r">CPU</th></tr>
+      <tr><td>bluetooth.service</td><td class="dim">Bluetooth service</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">688</td><td class="r">6M</td><td class="r">0.0</td></tr>
+      <tr><td>containerd.service</td><td class="dim">containerd container runtime</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">1290</td><td class="r">48M</td><td class="r">0.2</td></tr>
+      <tr><td>cups.service</td><td class="dim">CUPS Scheduler</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">4120</td><td class="r">11M</td><td class="r">0.0</td></tr>
+      <tr class="sel"><td>docker.service</td><td>Docker Application Container…</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">1022</td><td class="r">96M</td><td class="r">0.4</td></tr>
+      <tr><td>fwupd.service</td><td class="dim">Firmware update daemon</td><td class="dim">○ inattivo</td><td class="dim">statico</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>llama-swap.service</td><td class="dim">LLM proxy (llama-swap)</td><td class="c-red">✖ fallito</td><td>abilitato</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>NetworkManager.service</td><td class="dim">Network Manager</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">688</td><td class="r">21M</td><td class="r">0.1</td></tr>
+      <tr><td>nfs-client.target</td><td class="dim">NFS client services</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>postgresql.service</td><td class="dim">PostgreSQL 17</td><td class="c-grn">● attivo</td><td>disabilitato</td><td class="r">1305</td><td class="r">186M</td><td class="r">0.6</td></tr>
+      <tr><td>smartd.service</td><td class="dim">Self Monitoring and Reporting…</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">4188</td><td class="r">5M</td><td class="r">0.0</td></tr>
+      <tr><td>snapper-timeline.timer</td><td class="dim">Timeline of Snapper Snapshots</td><td class="c-yel">◷ attende</td><td>abilitato</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>sshd.service</td><td class="dim">OpenSSH Daemon</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">901</td><td class="r">8M</td><td class="r">0.0</td></tr>
+      <tr><td>systemd-journald.service</td><td class="dim">Journal Service</td><td class="c-grn">● attivo</td><td class="dim">statico</td><td class="r">402</td><td class="r">52M</td><td class="r">0.2</td></tr>
+      <tr><td>tailscaled.service</td><td class="dim">Tailscale node agent</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">1180</td><td class="r">38M</td><td class="r">0.1</td></tr>
+      <tr><td>ufw.service</td><td class="dim">CLI Netfilter Manager</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>update-notifier.service</td><td class="dim">Check for available updates</td><td class="c-red">✖ fallito</td><td class="dim">statico</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+    </table>
+  </div>
+
+  <div class="panel" style="--c:var(--grn)"><span class="t">docker.service</span><span class="t tr">/usr/lib/systemd/system/docker.service</span>
+    <div class="pre"><span class="dim">Stato    </span><span class="c-grn">● active (running)</span> da oggi 07:38:12 <span class="dim">(1h 25m)</span></div>
+    <div class="pre"><span class="dim">PID      </span>1022 dockerd · 22 task · <span class="dim">limite</span> 4915</div>
+    <div class="pre"><span class="dim">Memoria  </span>96.4M <span class="dim">(picco 212M)</span>   <span class="dim">CPU</span> 1min 42s</div>
+    <div class="pre"><span class="dim">Dipende  </span>network-online.target docker.socket containerd</div>
+    <div class="pre"><span class="dim">Riavvii  </span>0   <span class="dim">Restart=</span>always</div>
+    <div class="pre dim" style="margin-top:.4em">── registro (journalctl -u docker -f) ──────────────────────</div>
+    <div class="log">
+      <div><span class="dim">07:38:12</span> <span class="c-grn">Started docker.service - Docker Application Contai…</span></div>
+      <div><span class="dim">07:38:12</span> API listen on /run/docker.sock</div>
+      <div><span class="dim">07:38:14</span> Loading containers: done.</div>
+      <div><span class="dim">07:38:14</span> <span class="c-yel">WARNING: bridge-nf-call-iptables is disabled</span></div>
+      <div><span class="dim">07:38:15</span> Docker daemon commit=7a1f2c3 version=28.4.0</div>
+      <div><span class="dim">08:12:40</span> ignoring event module=libcontainerd topic=/tasks/…</div>
+      <div><span class="dim">08:51:03</span> <span class="c-red">error pulling image: context deadline exceeded</span></div>
+      <div><span class="dim">08:51:09</span> Container 3a1f postgres: health_status=healthy</div>
+      <div><span class="dim">09:01:22</span> ignoring event module=libcontainerd topic=/tasks/…</div>
+    </div>
+    <div class="pre" style="margin-top:.5em"><span class="btn">s Avvia</span> <span class="btn">t Ferma</span> <span class="btn">r Riavvia</span> <span class="btn">e Abilita</span> <span class="btn">j Registro</span></div>
+  </div>
+</div>
+
+<div class="g" style="grid-template-columns:104ch 1fr">
+  <div class="panel" style="--c:var(--yel)"><span class="t">avvio</span><span class="t tr">ultimo avvio: oggi 07:37 · 19.9 s</span>
+    <div class="pre"><span style="color:#8b949e">█████████████</span><span style="color:#58a6ff">██</span><span style="color:#bc8cff">████</span><span style="color:#39c5cf">███</span><span style="color:#e3b341">██████████</span></div>
+    <div class="pre"><span style="color:#8b949e">■ firmware 8.1s</span> <span style="color:#58a6ff">■ loader 1.2s</span> <span style="color:#bc8cff">■ kernel 2.3s</span> <span style="color:#39c5cf">■ initrd 1.9s</span> <span style="color:#e3b341">■ servizi 6.4s</span></div>
+    <div class="pre dim" style="margin-top:.3em">più lenti (systemd-analyze blame)</div>
+    <div class="pre">  NetworkManager-wait-online.service  <span class="mt" data-v="100" data-w="30" data-grad="disk"></span>  4.10 s  <span class="dim">→ si può disabilitare</span></div>
+    <div class="pre">  docker.service                      <span class="mt" data-v="46" data-w="30" data-grad="disk"></span>  1.88 s</div>
+    <div class="pre">  snapd.seeded.service                <span class="mt" data-v="31" data-w="30" data-grad="disk"></span>  1.27 s</div>
+    <div class="pre">  plymouth-quit-wait.service          <span class="mt" data-v="22" data-w="30" data-grad="disk"></span>  0.91 s</div>
+  </div>
+  <div class="panel" style="--c:var(--mem)"><span class="t">utenti e sessioni</span>
+    <table class="lt">
+      <tr><th>Utente</th><th>Sessione</th><th>Da</th><th>Dal</th><th class="r">Proc.</th><th class="r">CPU</th><th class="r">Mem</th></tr>
+      <tr><td class="w">alex</td><td>seat0 tty2 wayland</td><td>KDE Plasma</td><td>07:38</td><td class="r">291</td><td class="r">68%</td><td class="r">17.9G</td></tr>
+      <tr><td class="w">alex</td><td>pts/3 ssh</td><td>192.168.1.33</td><td>08:44</td><td class="r">4</td><td class="r">0.1%</td><td class="r">22M</td></tr>
+      <tr><td>root</td><td class="dim">— sistema</td><td></td><td>07:37</td><td class="r">108</td><td class="r">1.4%</td><td class="r">612M</td></tr>
+      <tr><td>999</td><td class="dim">— container</td><td>docker</td><td>07:38</td><td class="r">9</td><td class="r">0.6%</td><td class="r">186M</td></tr>
+    </table>
+    <div class="pre" style="margin-top:.4em"><span class="btn">x Disconnetti sessione</span> <span class="btn">m Invia messaggio</span></div>
+  </div>
+</div>
+
+<div class="keys"><b>/</b><span>Cerca</span><b>Tab</b><span>Filtro</span><b>u</b><span>Sistema/Utente</span><b>s t r</b><span>Avvia/Ferma/Riavvia</span><b>e</b><span>Abilita/Disabilita</span><b>j</b><span>Registro</span><b>Invio</b><span>Apri unità</span><b>q</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script><script>NG.start()</script>
+</body></html>

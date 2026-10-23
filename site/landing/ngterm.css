@@ -1,0 +1,70 @@
+/* ngtop – terminale dimostrativo per le pagine del sito (stili del mockup, confinati in .ngt) */
+.ngt-win { display: inline-block; background: #0b0f14; border: 1px solid #2a3240; border-radius: 12px;
+  overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.45); text-align: left; vertical-align: top; }
+.ngt-win > .ngt-bar { height: 30px; background: #161b22; display: flex; align-items: center; gap: 7px; padding: 0 12px;
+  color: #8b949e; font: 12px system-ui, sans-serif; }
+.ngt-win > .ngt-bar i { width: 11px; height: 11px; border-radius: 50%; background: #f85149; }
+.ngt-win > .ngt-bar i:nth-child(2) { background: #d29922; }
+.ngt-win > .ngt-bar i:nth-child(3) { background: #3fb950; margin-right: 8px; }
+.ngt-win > .ngt-bar .r { margin-left: auto; font-family: ui-monospace, monospace; font-size: 11px; }
+.ngt { font-family: 'JetBrains Mono', 'DejaVu Sans Mono', ui-monospace, monospace; font-size: var(--ngt-fs, 12px);
+  line-height: 1.25; color: #c9d1d9; background: #0b0f14; padding: 4px 1ch 6px; overflow: hidden; }
+.ngt .tabs span { cursor: pointer; }
+.ngt {--bg: #0b0f14; --fg: #c9d1d9; --dim: #6e7681; --faint: #1c222b; --line: #30363d;
+  --cpu: #3fb950; --mem: #39c5cf; --gpu: #bc8cff; --net: #58a6ff; --disk: #e3b341;
+  --proc: #f0883e; --red: #f85149; --yel: #d29922; --grn: #3fb950; --sel: #1f6feb;
+  --white: #f0f6fc;}
+.ngt .scr { padding: 4px 1ch 2px; position: relative; }
+.ngt .panel { position: relative; border: 1px solid var(--c, var(--line)); border-radius: 5px;
+  padding: .75em 1ch .3em; margin-top: .75em; min-width: 0; }
+.ngt .panel > .t { position: absolute; top: -.72em; left: 1.5ch; background: var(--bg); padding: 0 .5ch;
+  color: var(--c, var(--fg)); font-weight: 700; white-space: pre; }
+.ngt .panel > .t u { text-decoration: none; color: var(--white); }
+.ngt .panel > .tr { left: auto; right: 1.5ch; font-weight: 400; color: var(--dim); }
+.ngt .panel > .tb { top: auto; bottom: -.68em; font-weight: 400; color: var(--dim); }
+.ngt .panel.sq { border-radius: 0; }
+.ngt .g { display: grid; gap: 0 1ch; }
+.ngt .f { display: flex; gap: 1ch; }
+.ngt .kv { display: flex; justify-content: space-between; gap: 1ch; white-space: pre; }
+.ngt .gr { display: block; }
+.ngt .bg { line-height: 1; }
+.ngt .clip { display: inline-block; overflow: hidden; vertical-align: top; max-width: var(--cw, 40ch); white-space: pre; }
+.ngt .pre { white-space: pre; }
+.ngt .nw { white-space: nowrap; }
+.ngt .dim { color: var(--dim); }
+.ngt .faint { color: #3a414b; }
+.ngt .b { font-weight: 700; }
+.ngt .w { color: var(--white); }
+.ngt .c-cpu { color: var(--cpu); }
+.ngt .c-mem { color: var(--mem); }
+.ngt .c-gpu { color: var(--gpu); }
+.ngt .c-net { color: var(--net); }
+.ngt .c-disk { color: var(--disk); }
+.ngt .c-proc { color: var(--proc); }
+.ngt .c-red { color: var(--red); }
+.ngt .c-yel { color: var(--yel); }
+.ngt .c-grn { color: var(--grn); }
+.ngt .r { text-align: right; }
+.ngt .inv { background: var(--fg); color: var(--bg); }
+.ngt .hl { background: #1f6feb55; color: var(--white); }
+.ngt .top { display: flex; white-space: pre; gap: 0; }
+.ngt .top .grow { flex: 1; }
+.ngt .keys { white-space: pre; margin-top: .8em; display: flex; flex-wrap: nowrap; overflow: hidden; }
+.ngt .keys b { background: #39c5cf; color: #0b0f14; font-weight: 400; padding: 0 .3ch 0 .6ch; }
+.ngt .keys span { background: #1c2733; color: #c9d1d9; padding: 0 1.2ch 0 .4ch; }
+.ngt .tabs { display: flex; white-space: pre; gap: 1ch; }
+.ngt .tabs span { padding: 0 1ch; color: var(--dim); }
+.ngt .tabs span.on { background: var(--c, var(--net)); color: #0b0f14; font-weight: 700; }
+.ngt .tabs span u { text-decoration: underline; }
+.ngt table.pt { border-collapse: collapse; width: 100%; }
+.ngt .pt th { text-align: left; color: var(--dim); font-weight: 400; padding: 0 1ch 0 0; white-space: nowrap; }
+.ngt .pt th.r { text-align: right; }
+.ngt .pt th.s { color: var(--white); }
+.ngt .pt td { padding: 0 1ch 0 0; white-space: nowrap; overflow: hidden; text-overflow: clip; max-width: 60ch; }
+.ngt .pt tr.sel td { background: #1f6feb66; color: #fff; }
+.ngt .pt td.cmd { color: var(--dim); }
+.ngt .pt tr.grp td { color: var(--white); font-weight: 700; padding-top: .3em; }
+.ngt .modal { position: absolute; background: var(--bg); border: 1px solid var(--red); border-radius: 5px;
+  box-shadow: 0 0 0 100vmax #0008; padding: .8em 2ch .6em; z-index: 5; }
+.ngt .btn { padding: 0 1ch; background: #21262d; }
+.ngt .btn.on { background: var(--red); color: #0b0f14; font-weight: 700; }

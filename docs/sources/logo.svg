@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 330 76" width="330" height="76">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3fb950"/><stop offset="1" stop-color="#39c5cf"/></linearGradient></defs>
+<rect x="2" y="6" width="80" height="64" rx="14" fill="#0b0f14" stroke="#58a6ff" stroke-width="3.5"/>
+<path d="M2 24H82" stroke="#1c2733" stroke-width="2.5"/>
+<circle cx="15" cy="15" r="2.6" fill="#f85149"/><circle cx="24" cy="15" r="2.6" fill="#d29922"/><circle cx="33" cy="15" r="2.6" fill="#3fb950"/>
+<path d="M13 56L30 40L44 49L69 29" fill="none" stroke="url(#g)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="102" y="56" font-family="Outfit,'Segoe UI',Arial,sans-serif" font-size="46" font-weight="800" letter-spacing="-1" fill="#003a90">ng<tspan fill="#0050C0">top</tspan></text>
+</svg>

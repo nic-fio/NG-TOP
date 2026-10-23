@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 01 Classico</title><link rel="stylesheet" href="tui.css">
+<style>#pt{--cw:22ch}</style></head>
+<body>
+<div id="nav" data-i="1"></div>
+<p class="desc">La schermata principale "tutto in uno": in alto il grafico della <b>CPU</b> con tutti i core, a sinistra <b>memoria, GPU, rete e dischi</b>, a destra l'elenco dei <b>processi</b> con le colonne GPU/VRAM prese da nvtop. I grafici sono in caratteri braille (come btop), quindi ogni cella del terminale mostra 2×4 punti. Ogni pannello si attiva/disattiva con il numero sottolineato nel titolo.</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 182×52</span></div>
+<div class="scr" style="width:182ch">
+
+<div class="top"><span class="b c-net">ngtop</span><span class="dim"> 0.1 </span><span>│ workstation │ Linux 7.3 │ attivo 3g 04:12 │ carico </span><span class="c-yel">2.41 1.98 1.77</span><span class="grow"></span><span class="dim">aggiorna 1000ms │ </span><span data-clock></span></div>
+
+<div class="panel" style="--c:var(--cpu)"><span class="t"><u>1</u> cpu</span><span class="t tr">AMD Ryzen 9 7900X · 24 thread</span>
+  <div class="g" style="grid-template-columns:116ch 1fr">
+    <div class="gr" data-key="cpu" data-w="116" data-h="9" data-base=".3" data-vol=".05"></div>
+    <div>
+      <div class="pre"><span class="b">CPU</span> <span class="mt" data-key="cpu" data-w="30"></span> <span class="b" data-num="cpu" data-pad="3" data-unit="%"></span>  <span class="c-yel">62°C</span>  <span class="dim">4.71GHz</span></div>
+      <div class="g" style="grid-template-columns:repeat(3,1fr);margin-top:.2em"><div class="cores" data-n="8" data-w="6"></div><div class="cores" data-from="8" data-n="8" data-w="6"></div><div class="cores" data-from="16" data-n="8" data-w="6"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="g" style="grid-template-columns:72ch 1fr">
+  <div>
+    <div class="panel" style="--c:var(--mem)"><span class="t"><u>2</u> mem</span><span class="t tr">31.3 GiB</span>
+      <div class="g" style="grid-template-columns:1fr 22ch">
+        <div>
+          <div class="pre">Usata        <span class="mt" data-key="mem" data-base=".45" data-vol=".01" data-w="22" data-grad="used"></span> <span data-num="mem" data-scale="31.3" data-dec="1" data-pad="5" data-unit="G"></span></div>
+          <div class="pre">Disponibile  <span class="mt" data-v="55" data-w="22" data-grad="mem"></span>  17.1G</div>
+          <div class="pre">Cache        <span class="mt" data-v="28" data-w="22" data-grad="mem"></span>   8.8G</div>
+          <div class="pre">Libera       <span class="mt" data-v="26" data-w="22" data-grad="mem"></span>   8.3G</div>
+          <div class="pre">Swap         <span class="mt" data-v="6" data-w="22" data-grad="used"></span>   0.5G<span class="dim">/8G</span></div>
+          <div class="pre dim">ZRAM 1.2G → 0.4G (3.0×)  Sporca 12M</div>
+        </div>
+        <div class="gr" data-key="mem" data-w="22" data-h="6" data-grad="mem"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="--c:var(--gpu)"><span class="t"><u>3</u> gpu0</span><span class="t tr">AMD Radeon RX 6800 · amdgpu</span>
+      <div class="gr" data-key="gpu" data-w="68" data-h="4" data-base=".82" data-vol=".06" data-grad="gpu"></div>
+      <div class="g" style="grid-template-columns:1fr 1fr;margin-top:.25em">
+        <div class="pre">Uso   <span class="mt" data-key="gpu" data-w="16" data-grad="gpu"></span> <span data-num="gpu" data-pad="3" data-unit="%"></span></div>
+        <div class="pre">VRAM  <span class="mt" data-v="74" data-w="14" data-grad="gpu"></span> 11.8<span class="dim">/16G</span></div>
+        <div class="pre">Temp  <span class="c-yel">71°C</span> <span class="dim">giunz.</span> <span class="c-red">84°C</span></div>
+        <div class="pre">Pot.  <span data-num="gpu" data-scale="220" data-pad="3" data-unit="W"></span><span class="dim">/203W</span></div>
+        <div class="pre">Clock <span>2405</span><span class="dim">/1000 MHz</span></div>
+        <div class="pre">Vent. 48% <span class="dim">1650 RPM</span></div>
+        <div class="pre dim">PCIe 4.0 ×16  RX 1.2G/s TX 210M/s</div>
+        <div class="pre dim">ENC 34%  DEC 0%</div>
+      </div>
+    </div>
+
+    <div class="panel" style="--c:var(--net)"><span class="t"><u>4</u> net</span><span class="t tr">enp5s0 ‹ ›  192.168.1.10</span>
+      <div class="g" style="grid-template-columns:44ch 1fr">
+        <div><div class="gr" data-key="rx" data-w="44" data-h="3" data-base=".35" data-vol=".1" data-grad="net"></div><div class="gr" data-key="tx" data-w="44" data-h="2" data-base=".15" data-vol=".06" data-grad="up" data-down></div></div>
+        <div>
+          <div class="pre c-net">▼ <span data-num="rx" data-scale="12" data-dec="1" data-unit=" MB/s"></span></div>
+          <div class="pre dim">  picco 98 MB/s</div>
+          <div class="pre dim">  totale 12.4 GiB</div>
+          <div class="pre" style="color:#d2a8ff">▲ <span data-num="tx" data-scale="4" data-dec="1" data-unit=" MB/s"></span></div>
+          <div class="pre dim">  totale 1.9 GiB</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="--c:var(--disk)"><span class="t"><u>5</u> dischi</span><span class="t tr">L <span class="c-disk" data-num="dr" data-scale="40" data-dec="1"></span> S <span class="c-proc" data-num="dw" data-scale="25" data-dec="1"></span> MB/s</span>
+      <div class="pre">/          <span class="mt" data-v="44" data-w="24" data-grad="used"></span> 412G<span class="dim">/931G</span> <span class="sp" data-key="dr" data-base=".2" data-vol=".1" data-w="12" data-grad="disk"></span></div>
+      <div class="pre">/home      <span class="mt" data-v="71" data-w="24" data-grad="used"></span> 1.3T<span class="dim">/1.8T</span> <span class="sp" data-key="dw" data-base=".15" data-vol=".1" data-w="12" data-grad="wr"></span></div>
+      <div class="pre">/mnt/dati  <span class="mt" data-v="93" data-w="24" data-grad="used"></span> <span class="c-red">3.4T</span><span class="dim">/3.6T</span> <span class="sp" data-key="d3" data-base=".03" data-vol=".02" data-w="12" data-grad="disk"></span></div>
+    </div>
+  </div>
+
+  <div class="panel" style="--c:var(--proc)"><span class="t"><u>6</u> processi</span><span class="t tr">filtro: <span class="w">_</span>  ‹ cpu ›  albero  per-core</span><span class="t tb">412 processi · 5321 thread · selez. 3/412</span>
+    <table class="pt" id="pt" data-cols="pid,name,cmd,user,thr,mem,cpu,cbar,gpu,vram,disk" data-rows="35" data-selrow="2"></table>
+  </div>
+</div>
+
+<div class="keys"><b>F1</b><span>Aiuto</span><b>F2</b><span>Opzioni</span><b>F3</b><span>Cerca</span><b>F4</b><span>Filtro</span><b>F5</b><span>Albero</span><b>F6</b><span>Ordina</span><b>F7</b><span>Nice-</span><b>F8</b><span>Nice+</span><b>F9</b><span>Segnale</span><b>Tab</b><span>Vista</span><b>1-6</b><span>Pannelli</span><b>F10</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script>
+<script>NG.start()</script>
+</body></html>

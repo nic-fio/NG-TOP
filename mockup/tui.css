@@ -1,0 +1,101 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
+/* ngtop – stile comune dei mockup: simula un terminale a celle (unità = ch) */
+:root {
+  --bg: #0b0f14; --fg: #c9d1d9; --dim: #6e7681; --faint: #1c222b; --line: #30363d;
+  --cpu: #3fb950; --mem: #39c5cf; --gpu: #bc8cff; --net: #58a6ff; --disk: #e3b341;
+  --proc: #f0883e; --red: #f85149; --yel: #d29922; --grn: #3fb950; --sel: #1f6feb;
+  --white: #f0f6fc;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #020407; color: var(--fg); }
+body {
+  font-family: 'DejaVu Sans Mono', 'JetBrains Mono', monospace;
+  font-size: 13px; line-height: 1.25; padding: 20px;
+}
+
+/* ---- intestazione fuori dal terminale (non fa parte della TUI) ---- */
+#nav { font-family: system-ui, sans-serif; display: flex; gap: 14px; align-items: baseline;
+  margin-bottom: 6px; color: #8b949e; flex-wrap: wrap; }
+#nav h1 { font-size: 19px; color: #e6edf3; margin: 0; }
+#nav a { color: #58a6ff; text-decoration: none; }
+#nav .grow { flex: 1; }
+.desc { font-family: system-ui, sans-serif; color: #9da7b3; max-width: 1150px;
+  margin: 0 0 16px; font-size: 14px; line-height: 1.55; }
+.desc b { color: #e6edf3; }
+
+/* ---- finestra del terminale ---- */
+.win { display: inline-block; background: var(--bg); border: 1px solid #30363d; border-radius: 10px;
+  overflow: hidden; box-shadow: 0 24px 70px #000c; vertical-align: top; }
+.win > .bar { height: 28px; background: #161b22; display: flex; align-items: center; gap: 7px;
+  padding: 0 12px; color: #8b949e; font: 12px system-ui, sans-serif; }
+.win > .bar i { width: 11px; height: 11px; border-radius: 50%; background: #f85149; }
+.win > .bar i:nth-child(2) { background: #d29922; }
+.win > .bar i:nth-child(3) { background: #3fb950; margin-right: 10px; }
+.scr { padding: 4px 1ch 2px; position: relative; }
+
+/* ---- pannelli con titolo sul bordo (stile btop) ---- */
+.panel { position: relative; border: 1px solid var(--c, var(--line)); border-radius: 5px;
+  padding: .75em 1ch .3em; margin-top: .75em; min-width: 0; }
+.panel > .t { position: absolute; top: -.72em; left: 1.5ch; background: var(--bg); padding: 0 .5ch;
+  color: var(--c, var(--fg)); font-weight: 700; white-space: pre; }
+.panel > .t u { text-decoration: none; color: var(--white); }
+.panel > .tr { left: auto; right: 1.5ch; font-weight: 400; color: var(--dim); }
+.panel > .tb { top: auto; bottom: -.68em; font-weight: 400; color: var(--dim); }
+.panel.sq { border-radius: 0; }
+
+.g { display: grid; gap: 0 1ch; }
+.f { display: flex; gap: 1ch; }
+.kv { display: flex; justify-content: space-between; gap: 1ch; white-space: pre; }
+.gr { display: block; }
+.bg { line-height: 1; }
+.clip { display: inline-block; overflow: hidden; vertical-align: top; max-width: var(--cw, 40ch); white-space: pre; }
+.pre { white-space: pre; }
+.nw { white-space: nowrap; }
+.dim { color: var(--dim); } .faint { color: #3a414b; } .b { font-weight: 700; } .w { color: var(--white); }
+.c-cpu { color: var(--cpu); } .c-mem { color: var(--mem); } .c-gpu { color: var(--gpu); }
+.c-net { color: var(--net); } .c-disk { color: var(--disk); } .c-proc { color: var(--proc); }
+.c-red { color: var(--red); } .c-yel { color: var(--yel); } .c-grn { color: var(--grn); }
+.r { text-align: right; }
+.inv { background: var(--fg); color: var(--bg); }
+.hl { background: #1f6feb55; color: var(--white); }
+
+/* riga di stato in alto */
+.top { display: flex; white-space: pre; gap: 0; }
+.top .grow { flex: 1; }
+
+/* tasti funzione in basso (stile htop) */
+.keys { white-space: pre; margin-top: .8em; display: flex; flex-wrap: nowrap; overflow: hidden; }
+.keys b { background: #39c5cf; color: #0b0f14; font-weight: 400; padding: 0 .3ch 0 .6ch; }
+.keys span { background: #1c2733; color: #c9d1d9; padding: 0 1.2ch 0 .4ch; }
+
+/* schede */
+.tabs { display: flex; white-space: pre; gap: 1ch; }
+.tabs span { padding: 0 1ch; color: var(--dim); }
+.tabs span.on { background: var(--c, var(--net)); color: #0b0f14; font-weight: 700; }
+.tabs span u { text-decoration: underline; }
+
+/* tabelle di processi */
+table.pt { border-collapse: collapse; width: 100%; }
+.pt th { text-align: left; color: var(--dim); font-weight: 400; padding: 0 1ch 0 0; white-space: nowrap; }
+.pt th.r { text-align: right; }
+.pt th.s { color: var(--white); }
+.pt td { padding: 0 1ch 0 0; white-space: nowrap; overflow: hidden; text-overflow: clip; max-width: 60ch; }
+.pt tr.sel td { background: #1f6feb66; color: #fff; }
+.pt td.cmd { color: var(--dim); }
+.pt tr.grp td { color: var(--white); font-weight: 700; padding-top: .3em; }
+
+/* finestra di dialogo modale dentro la TUI */
+.modal { position: absolute; background: var(--bg); border: 1px solid var(--red); border-radius: 5px;
+  box-shadow: 0 0 0 100vmax #0008; padding: .8em 2ch .6em; z-index: 5; }
+.btn { padding: 0 1ch; background: #21262d; }
+.btn.on { background: var(--red); color: #0b0f14; font-weight: 700; }
+
+/* indice */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; max-width: 1400px; }
+.card { display: block; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 14px 16px;
+  color: #c9d1d9; text-decoration: none; font-family: system-ui, sans-serif; }
+.card:hover { border-color: #58a6ff; }
+.card h2 { margin: 0 0 6px; font-size: 16px; color: #e6edf3; }
+.card h2 span { color: #58a6ff; font-family: 'DejaVu Sans Mono', monospace; margin-right: 6px; }
+.card p { margin: 0; font-size: 13.5px; line-height: 1.5; color: #9da7b3; }

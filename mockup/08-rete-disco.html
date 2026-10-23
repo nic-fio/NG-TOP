@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 08 Rete e disco</title><link rel="stylesheet" href="tui.css">
+<style>
+  .lt { border-collapse: collapse; width: 100%; }
+  .lt th { color: var(--dim); font-weight: 400; text-align: left; padding: 0 1ch 0 0; white-space: pre; }
+  .lt td { padding: 0 1ch 0 0; white-space: pre; }
+  .lt .r { text-align: right; }
+  .lt tr.sel td { background: #1f6feb66; color: #fff; }
+</style></head>
+<body>
+<div id="nav" data-i="8"></div>
+<p class="desc">Tutto ciò che entra ed esce. In alto ogni <b>interfaccia di rete</b> con il grafico a specchio (ricezione sopra, invio sotto) e l'elenco delle interfacce, comprese VPN e container. Al centro le <b>connessioni</b> aperte con il processo a cui appartengono e la velocità di ciascuna. In basso ogni <b>disco</b> con letture/scritture, latenza, coda e i <b>filesystem</b> con lo spazio occupato (in rosso oltre il 90%).</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 172×50</span></div>
+<div class="scr" style="width:174ch">
+
+<div class="top"><span class="b c-net">ngtop</span><span class="dim"> │ </span><div class="tabs"><span>Sistema</span><span>GPU</span><span>Processi</span><span class="on">Rete e dischi</span><span>Sensori</span></div><span class="grow"></span><span data-clock></span></div>
+
+<div class="g" style="grid-template-columns:1fr 62ch">
+  <div class="panel" style="--c:var(--net)"><span class="t">enp5s0</span><span class="t tr">1 Gbit/s full-duplex · 192.168.1.10/24 · fe80::a2c:…</span>
+    <div class="g" style="grid-template-columns:86ch 1fr">
+      <div><div class="gr" data-key="rx" data-base=".35" data-vol=".1" data-w="86" data-h="4" data-grad="net"></div><div class="gr" data-key="tx" data-base=".15" data-vol=".06" data-w="86" data-h="3" data-grad="up" data-down></div></div>
+      <div>
+        <div class="pre c-net b">▼ Ricezione</div>
+        <div class="pre"><span class="w" data-num="rx" data-scale="12" data-dec="1" data-unit=" MB/s"></span></div>
+        <div class="pre dim">picco 98.1 MB/s</div>
+        <div class="pre dim">totale 12.4 GiB</div>
+        <div class="pre b" style="color:#d2a8ff;margin-top:.3em">▲ Invio</div>
+        <div class="pre"><span class="w" data-num="tx" data-scale="4" data-dec="1" data-unit=" MB/s"></span></div>
+        <div class="pre dim">totale 1.9 GiB</div>
+      </div>
+    </div>
+  </div>
+  <div class="panel" style="--c:var(--net)"><span class="t">interfacce</span><span class="t tr">‹ › cambia</span>
+    <table class="lt">
+      <tr><th>Nome</th><th>Indirizzo</th><th class="r">▼</th><th class="r">▲</th><th></th></tr>
+      <tr class="sel"><td>enp5s0</td><td>192.168.1.10</td><td class="r" data-num="rx" data-scale="12" data-dec="1" data-unit="M"></td><td class="r" data-num="tx" data-scale="4" data-dec="1" data-unit="M"></td><td class="c-grn">● su</td></tr>
+      <tr><td>wlp6s0</td><td class="dim">—</td><td class="r">0</td><td class="r">0</td><td class="dim">○ giù</td></tr>
+      <tr><td>tailscale0</td><td>100.81.4.22</td><td class="r">0.1K</td><td class="r">0.2K</td><td class="c-grn">● su</td></tr>
+      <tr><td>wg0</td><td>10.8.0.2</td><td class="r">0</td><td class="r">0</td><td class="c-yel">◐ inatt.</td></tr>
+      <tr><td>docker0</td><td>172.17.0.1</td><td class="r">12K</td><td class="r">3K</td><td class="c-grn">● su</td></tr>
+      <tr><td>veth3a1f</td><td class="dim">postgres</td><td class="r">12K</td><td class="r">3K</td><td class="c-grn">● su</td></tr>
+      <tr><td>lo</td><td>127.0.0.1</td><td class="r">48K</td><td class="r">48K</td><td class="c-grn">● su</td></tr>
+    </table>
+    <div class="pre dim" style="margin-top:.2em">DNS 192.168.1.1 · gateway 192.168.1.1 · ping 0.4 ms</div>
+  </div>
+</div>
+
+<div class="panel" style="--c:var(--proc)"><span class="t">connessioni</span><span class="t tr">‹ TCP+UDP › stato: tutte · 38 aperte · ordina ‹ ▼ ›</span>
+  <table class="lt" id="conn"></table>
+</div>
+
+<div class="g" style="grid-template-columns:1fr 1fr">
+  <div class="panel" style="--c:var(--disk)"><span class="t">nvme0n1</span><span class="t tr">Samsung 990 PRO 2TB · NVMe · 41°C · salute 98%</span>
+    <div class="g" style="grid-template-columns:52ch 1fr">
+      <div><div class="gr" data-key="dr" data-base=".2" data-vol=".1" data-w="52" data-h="3" data-grad="disk"></div><div class="gr" data-key="dw" data-base=".15" data-vol=".1" data-w="52" data-h="3" data-grad="wr" data-down></div></div>
+      <div>
+        <div class="pre"><span class="c-disk">L</span> <span data-num="dr" data-scale="40" data-dec="1" data-pad="5" data-unit=" MB/s"></span></div>
+        <div class="pre"><span class="c-proc">S</span> <span data-num="dw" data-scale="25" data-dec="1" data-pad="5" data-unit=" MB/s"></span></div>
+        <div class="pre"><span class="dim">IOPS </span> <span data-num="dr" data-scale="3000"></span></div>
+        <div class="pre"><span class="dim">Uso  </span> <span data-num="dr" data-scale="30" data-unit="%"></span></div>
+        <div class="pre"><span class="dim">Lat. </span> 0.12 ms</div>
+        <div class="pre"><span class="dim">Coda </span> 0.4</div>
+      </div>
+    </div>
+  </div>
+  <div class="panel" style="--c:var(--disk)"><span class="t">sda</span><span class="t tr">WDC WD40EFRX 4TB · HDD · 36°C · SMART ok</span>
+    <div class="g" style="grid-template-columns:52ch 1fr">
+      <div><div class="gr" data-key="sr" data-base=".04" data-vol=".04" data-w="52" data-h="3" data-grad="disk"></div><div class="gr" data-key="sw" data-base=".02" data-vol=".02" data-w="52" data-h="3" data-grad="wr" data-down></div></div>
+      <div>
+        <div class="pre"><span class="c-disk">L</span> <span data-num="sr" data-scale="160" data-dec="1" data-pad="5" data-unit=" MB/s"></span></div>
+        <div class="pre"><span class="c-proc">S</span> <span data-num="sw" data-scale="140" data-dec="1" data-pad="5" data-unit=" MB/s"></span></div>
+        <div class="pre"><span class="dim">IOPS </span> <span data-num="sr" data-scale="180"></span></div>
+        <div class="pre"><span class="dim">Uso  </span> <span data-num="sr" data-scale="100" data-unit="%"></span></div>
+        <div class="pre"><span class="dim">Lat. </span> <span class="c-yel">8.4 ms</span></div>
+        <div class="pre"><span class="dim">Coda </span> 1.2</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="--c:var(--disk)"><span class="t">filesystem</span><span class="t tr">nascondi tmpfs/overlay: sì</span>
+  <table class="lt">
+    <tr><th>Montato su</th><th>Dispositivo</th><th>Tipo</th><th>Uso</th><th class="r">Usato</th><th class="r">Libero</th><th class="r">Totale</th><th class="r">Inode</th><th>Opzioni</th></tr>
+    <tr><td>/</td><td>nvme0n1p2</td><td>btrfs</td><td><span class="mt" data-v="44" data-w="40" data-grad="used"></span>  44%</td><td class="r">412G</td><td class="r">519G</td><td class="r">931G</td><td class="r">—</td><td class="dim">rw,noatime,compress=zstd:1</td></tr>
+    <tr><td>/home</td><td>nvme0n1p3</td><td>btrfs</td><td><span class="mt" data-v="71" data-w="40" data-grad="used"></span>  71%</td><td class="r">1.3T</td><td class="r">0.5T</td><td class="r">1.8T</td><td class="r">—</td><td class="dim">rw,noatime,compress=zstd:1</td></tr>
+    <tr><td>/boot/efi</td><td>nvme0n1p1</td><td>vfat</td><td><span class="mt" data-v="12" data-w="40" data-grad="used"></span>  12%</td><td class="r">62M</td><td class="r">450M</td><td class="r">512M</td><td class="r">—</td><td class="dim">rw,relatime</td></tr>
+    <tr><td>/mnt/dati</td><td>sda1</td><td>ext4</td><td><span class="mt" data-v="93" data-w="40" data-grad="used"></span>  <span class="c-red">93%</span></td><td class="r">3.4T</td><td class="r c-red">0.2T</td><td class="r">3.6T</td><td class="r">4%</td><td class="dim">rw,relatime</td></tr>
+    <tr><td>/mnt/nas</td><td>192.168.1.2:/srv</td><td>nfs4</td><td><span class="mt" data-v="58" data-w="40" data-grad="used"></span>  58%</td><td class="r">5.2T</td><td class="r">3.8T</td><td class="r">9.0T</td><td class="r">—</td><td class="dim">rw,vers=4.2</td></tr>
+  </table>
+</div>
+
+<div class="keys"><b>i</b><span>Interfaccia</span><b>c</b><span>Connessioni TCP/UDP</span><b>Invio</b><span>Vai al processo</span><b>r</b><span>Risolvi nomi</span><b>z</b><span>Azzera totali</span><b>F6</b><span>Ordina</span><b>q</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script>
+<script>
+const C = [
+  ['TCP', '192.168.1.10:51842', '151.101.1.140:443', 'reddit.map.fastly.net', 'ESTAB', 2001, 'firefox', 1.8, .05],
+  ['TCP', '192.168.1.10:44120', '160.79.104.10:443', 'api.anthropic.com', 'ESTAB', 2602, 'claude', .3, .2],
+  ['UDP', '0.0.0.0:27036', '185.25.182.77:27017', 'valve (Steam)', '—', 3200, 'steam', .6, .1],
+  ['TCP', '192.168.1.10:22000', '192.168.1.2:22000', 'nas.lan', 'ESTAB', 4090, 'syncthing', 1.1, .4],
+  ['TCP', '192.168.1.10:39012', '149.154.167.51:443', 'telegram', 'ESTAB', 3702, 'telegram-deskto', .1, .02],
+  ['TCP', '0.0.0.0:22', '*', '', 'LISTEN', 901, 'sshd', 0, 0],
+  ['TCP', '127.0.0.1:5432', '*', '', 'LISTEN', 1305, 'postgres', 0, 0],
+  ['TCP', '192.168.1.10:22', '192.168.1.33:50122', 'telefono.lan', 'ESTAB', 901, 'sshd', .01, .03],
+];
+NG.start(() => {
+  const j = v => v * Math.max(0, 1 + (Math.random() - .5) * .6);
+  let h = '<tr><th>Proto</th><th>Locale</th><th>Remoto</th><th>Nome remoto</th><th>Stato</th><th class="r">PID</th><th>Processo</th><th class="r">▼ Mb/s</th><th class="r">▲ Mb/s</th><th>Traffico</th></tr>';
+  C.forEach((c, i) => {
+    const rx = j(c[7]), tx = j(c[8]);
+    h += `<tr class="${i === 0 ? 'sel' : ''}"><td>${c[0]}</td><td>${c[1]}</td><td>${c[2]}</td><td class="dim">${c[3]}</td><td class="${c[4] === 'LISTEN' ? 'c-yel' : 'c-grn'}">${c[4]}</td><td class="r">${c[5]}</td><td>${c[6]}</td><td class="r">${rx ? rx.toFixed(2) : '—'}</td><td class="r">${tx ? tx.toFixed(2) : '—'}</td><td>${NG.bar(Math.min(1, rx / 2), 16, 'net')}</td></tr>`;
+  });
+  document.getElementById('conn').innerHTML = h;
+});
+</script>
+</body></html>

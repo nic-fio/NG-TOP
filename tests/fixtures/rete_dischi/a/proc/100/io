@@ -1,0 +1,4 @@
+rchar: 5
+wchar: 5
+read_bytes: 1000
+write_bytes: 2000

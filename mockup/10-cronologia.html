@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · 10 Cronologia</title><link rel="stylesheet" href="tui.css">
+<style>
+  .lt { border-collapse: collapse; width: 100%; }
+  .lt th { color: var(--dim); font-weight: 400; text-align: left; padding: 0 1ch 0 0; white-space: pre; }
+  .lt td { padding: 0 1ch 0 0; white-space: pre; }
+  .lt .r { text-align: right; }
+  .chip { padding: 0 1ch; background: #21262d; }
+  .chip.on { background: var(--net); color: #0b0f14; font-weight: 700; }
+  .hist { position: relative; }
+  .cursor { position: absolute; top: 0; bottom: 1.3em; width: 1ch; background: #f0f6fc18; border-left: 1px solid #f0f6fc88; }
+  .tip { position: absolute; background: #161b22; border: 1px solid var(--line); padding: .2em 1ch; white-space: pre; z-index: 2; }
+</style></head>
+<body>
+<div id="nav" data-i="10"></div>
+<p class="desc">La <b>cronologia</b>: ngtop può registrare in sottofondo (un piccolo servizio utente, opzionale) e poi mostrare com'è andato il PC nelle ultime ore o giorni. Si sceglie l'intervallo, si muove il <b>cursore</b> con le frecce e si leggono i valori di quel momento. Sotto, gli <b>eventi</b> notevoli rilevati automaticamente (surriscaldamenti, memoria esaurita, servizi falliti, dischi pieni) e il <b>consumo per applicazione</b> nella giornata, come la "Cronologia app" di Windows.</p>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span>ngtop — 176×48</span></div>
+<div class="scr" style="width:178ch">
+
+<div class="top" style="margin:.3em 0 .4em"><span class="b c-net"> ngtop </span><div class="tabs"><span>Processi</span><span>Prestazioni</span><span class="on">Cronologia</span><span>Avvio</span><span>Utenti</span><span>Dettagli</span><span>Servizi</span></div><span class="grow"></span><span data-clock class="dim"></span></div>
+
+<div class="panel" style="--c:var(--net)"><span class="t">storico</span><span class="t tr">registrazione: ngtop-recorder · 1 campione/10 s · 38 MB · conserva 30 giorni</span>
+  <div class="top" style="gap:1ch;margin-bottom:.5em"><span class="dim">intervallo</span><span class="chip">5 min</span><span class="chip">1 ora</span><span class="chip">6 ore</span><span class="chip on">24 ore</span><span class="chip">7 giorni</span><span class="chip">30 giorni</span><span class="grow"></span><span class="dim">‹ </span><span class="w">giovedì 23 ottobre 2026</span><span class="dim"> ›   cursore </span><span class="w">20:42</span></div>
+  <div class="hist">
+    <div class="g" style="grid-template-columns:9ch 144ch 1fr;gap:.25em 1ch">
+      <div class="pre c-cpu b">CPU</div><div class="gr" data-key="h_cpu" data-w="144" data-h="4"></div><div class="pre dim">media 21%
+max 97%</div>
+      <div class="pre c-mem b">Memoria</div><div class="gr" data-key="h_mem" data-w="144" data-h="3" data-grad="mem"></div><div class="pre dim">media 42%
+max 81%</div>
+      <div class="pre c-gpu b">GPU</div><div class="gr" data-key="h_gpu" data-w="144" data-h="4" data-grad="gpu"></div><div class="pre dim">media 19%
+max 99%</div>
+      <div class="pre c-yel b">Temp.</div><div class="gr" data-key="h_tmp" data-w="144" data-h="2" data-grad="temp"></div><div class="pre dim">max 101°C</div>
+      <div class="pre c-net b">Rete ▼</div><div class="gr" data-key="h_net" data-w="144" data-h="2" data-grad="net"></div><div class="pre dim">11.8 GiB</div>
+      <div class="pre c-disk b">Disco</div><div class="gr" data-key="h_dsk" data-w="144" data-h="2" data-grad="disk"></div><div class="pre dim">L 48 GiB
+S 21 GiB</div>
+      <div></div><div class="pre dim">00:00       02:00       04:00       06:00       08:00       10:00       12:00       14:00       16:00       18:00       20:00       22:00       </div><div class="pre dim">ora</div>
+    </div>
+    <div class="cursor" style="left:calc(10ch + 124ch)"></div>
+    <div class="tip" style="left:calc(10ch + 100ch);top:1.2em"><span class="w b">20:42</span>
+<span class="c-cpu">CPU     </span> 64%
+<span class="c-mem">Memoria </span> 23.1 GiB
+<span class="c-gpu">GPU     </span> 98%  <span class="c-red">97°C</span>
+<span class="c-net">Rete    </span> ▼ 2.1 MB/s
+<span class="c-disk">Disco   </span> L 12 MB/s
+<span class="dim">in testa: Cyberpunk2077</span></div>
+  </div>
+</div>
+
+<div class="g" style="grid-template-columns:82ch 1fr">
+  <div class="panel" style="--c:var(--yel)"><span class="t">eventi</span><span class="t tr">‹ tutti › 7 oggi</span>
+    <div class="pre"><span class="dim">21:14</span> <span class="c-yel">▲</span> GPU giunzione a <span class="c-red">101°C</span> per 3 min <span class="dim">(Cyberpunk2077)</span></div>
+    <div class="pre"><span class="dim">20:05</span> <span class="c-yel">▲</span> Memoria oltre l'80% per 6 min <span class="dim">(swap 1.8 GiB)</span></div>
+    <div class="pre"><span class="dim">16:02</span> <span class="c-red">✖</span> OOM killer ha terminato <span class="w">chrome</span> <span class="dim">PID 8812 · 6.1 GiB</span></div>
+    <div class="pre"><span class="dim">11:30</span> <span class="c-red">✖</span> Servizio <span class="w">llama-swap.service</span> fallito <span class="dim">(exit 1)</span></div>
+    <div class="pre"><span class="dim">09:12</span> <span class="c-yel">▲</span> /mnt/dati oltre il 90% <span class="dim">(0.2 TiB liberi)</span></div>
+    <div class="pre"><span class="dim">08:44</span> <span class="c-net">●</span> Accesso SSH di alex da 192.168.1.33</div>
+    <div class="pre"><span class="dim">07:37</span> <span class="c-net">●</span> Avvio del sistema in 19.9 s <span class="dim">(kernel 7.3.2)</span></div>
+    <div class="pre dim" style="margin-top:.3em">Invio = vai a quel momento nel grafico · n = notifiche desktop</div>
+  </div>
+  <div class="panel" style="--c:var(--proc)"><span class="t">consumo per applicazione</span><span class="t tr">oggi · ordina ‹ energia ›</span>
+    <table class="lt">
+      <tr><th>Applicazione</th><th class="r">Tempo CPU</th><th class="r">Tempo GPU</th><th>Energia stimata</th><th class="r">Rete ▼/▲</th><th class="r">Disco scr.</th></tr>
+      <tr><td class="w">Cyberpunk2077</td><td class="r">3:12:40</td><td class="r">2:58:11</td><td><span class="mt" data-v="100" data-w="20" data-grad="wr"></span> 1210 Wh</td><td class="r">0.1/0.0 G</td><td class="r">2.4 G</td></tr>
+      <tr><td>firefox</td><td class="r">1:04:22</td><td class="r">0:09:40</td><td><span class="mt" data-v="21" data-w="20" data-grad="wr"></span>  254 Wh</td><td class="r">6.2/0.4 G</td><td class="r">1.1 G</td></tr>
+      <tr><td>rustc / cargo</td><td class="r">0:48:05</td><td class="r">—</td><td><span class="mt" data-v="15" data-w="20" data-grad="wr"></span>  182 Wh</td><td class="r">0.2/0.0 G</td><td class="r">8.7 G</td></tr>
+      <tr><td>obs</td><td class="r">0:22:30</td><td class="r">0:40:02</td><td><span class="mt" data-v="12" data-w="20" data-grad="wr"></span>  141 Wh</td><td class="r">0.0/0.0 G</td><td class="r">6.3 G</td></tr>
+      <tr><td>code</td><td class="r">0:31:10</td><td class="r">0:01:12</td><td><span class="mt" data-v="8" data-w="20" data-grad="wr"></span>   96 Wh</td><td class="r">0.1/0.0 G</td><td class="r">0.2 G</td></tr>
+      <tr><td>syncthing</td><td class="r">0:05:51</td><td class="r">—</td><td><span class="mt" data-v="2" data-w="20" data-grad="wr"></span>   21 Wh</td><td class="r">3.9/2.1 G</td><td class="r">3.9 G</td></tr>
+      <tr><td>kwin_wayland</td><td class="r">0:14:02</td><td class="r">0:18:45</td><td><span class="mt" data-v="5" data-w="20" data-grad="wr"></span>   58 Wh</td><td class="r">—</td><td class="r">0.0 G</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="keys"><b>←→</b><span>Cursore</span><b>+/-</b><span>Zoom</span><b>[ ]</b><span>Giorno prec./succ.</span><b>e</b><span>Eventi</span><b>x</b><span>Esporta CSV</span><b>F2</b><span>Registrazione</span><b>q</b><span>Esci</span></div>
+</div></div>
+<script src="tui.js"></script>
+<script>
+// profili di una giornata tipo (288 punti = 24 h a passi di 5 min)
+const N = 288, hr = i => i / N * 24;
+const day = {
+  h_cpu: h => h < 7.6 ? .03 : h < 12.5 ? .28 : h < 14 ? .1 : h < 19.5 ? .32 : h < 23 ? .62 : .2,
+  h_mem: h => h < 7.6 ? .12 : h < 16 ? .45 : h < 16.1 ? .9 : h < 20 ? .5 : h < 20.1 ? .82 : .72,
+  h_gpu: h => h < 7.6 ? 0 : h < 19.5 ? .08 : h < 23 ? .93 : .1,
+  h_tmp: h => h < 7.6 ? .3 : h < 19.5 ? .5 : h < 23 ? .9 : .5,
+  h_net: h => h < 7.6 ? .01 : h < 19 ? .18 : .3,
+  h_dsk: h => h < 7.6 ? .01 : h < 12.5 ? .3 : h < 19.5 ? .15 : .22,
+};
+for (const [k, f] of Object.entries(day)) {
+  const s = NG.series(k, .1, .02);
+  s.v = Array.from({ length: N }, (_, i) => Math.max(.02, Math.min(.99, f(hr(i)) + (Math.random() - .5) * .14 * (f(hr(i)) + .1) * 2)));
+  s.x = s.v[N - 1]; s.frozen = true;
+}
+NG.start();
+</script>
+</body></html>

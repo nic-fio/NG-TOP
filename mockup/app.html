@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ngtop · app completa</title><link rel="stylesheet" href="tui.css">
+<style>
+  .modal { left: 50ch; top: 15em; width: 60ch; }
+  .opt { white-space: pre; }
+  .opt.on { background: #f8514933; color: #fff; }
+
+  .lt { border-collapse: collapse; width: 100%; }
+  .lt th { color: var(--dim); font-weight: 400; text-align: left; padding: 0 1ch 0 0; white-space: pre; }
+  .lt td { padding: 0 1ch 0 0; white-space: pre; }
+  .lt .r { text-align: right; }
+  .lt tr.sel td { background: #1f6feb66; color: #fff; }
+
+  .lt2 { border-collapse: collapse; width: 100%; }
+  .lt th { color: var(--dim); font-weight: 400; text-align: left; padding: 0 1ch 0 0; white-space: pre; }
+  .lt td { padding: 0 1ch 0 0; white-space: pre; }
+  .lt .r { text-align: right; }
+  .lt tr.sel td { background: #1f6feb66; color: #fff; }
+  .chip { padding: 0 1ch; background: #21262d; }
+  .chip.on { background: var(--net); color: #0b0f14; font-weight: 700; }
+  .log div { white-space: pre; overflow: hidden; }
+
+  #pt1{--cw:22ch} #pt4{--cw:46ch}
+  section[hidden]{display:none}
+  .tabs span{cursor:pointer}
+  .ctl{font:14px system-ui,sans-serif;color:#9da7b3;margin:0 0 12px;display:flex;gap:10px;align-items:center}
+  .ctl button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:5px 12px;cursor:pointer;font:inherit}
+  .ctl button.on{background:#1f6feb;border-color:#1f6feb}
+</style></head>
+<body>
+<div id="nav"><a href="index.html">☰ Indice</a><h1>ngtop · app completa</h1><span>le sezioni scelte unite in un'unica interfaccia</span></div>
+<p class="desc">Mockup interattivo dell'app come sarà: una barra di <b>sezioni</b> in alto (clic, oppure tasti <b>1–5</b>, oppure <b>Tab</b> / <b>Maiusc+Tab</b>). La <b>Panoramica</b> è la pagina principale; quando il terminale è piccolo si ridisegna da sola nel formato compatto (prova il pulsante qui sotto). Nella sezione Processi il tasto <b>F9</b> apre la finestra per inviare un segnale, <b>Esc</b> la chiude.</p>
+<div class="ctl">Dimensione terminale: <button id="bBig" class="on">Grande 182×52</button><button id="bSmall">Piccolo 80×24</button></div>
+<div class="win"><div class="bar"><i></i><i></i><i></i><span id="wt">ngtop — 182×52</span></div>
+<div class="scr" id="scr" style="width:182ch">
+
+<div id="big">
+<div class="top"><span class="b c-net">ngtop</span><span class="dim"> 0.1 │ </span><div class="tabs" id="tabs"><span data-s="1" class="on">1 Panoramica</span><span data-s="2">2 GPU</span><span data-s="3">3 Processi</span><span data-s="4">4 Rete e dischi</span><span data-s="5">5 Servizi</span></div><span class="grow"></span><span class="dim">workstation │ attivo 3g 04:12 │ carico </span><span class="c-yel">2.41 1.98 1.77</span><span class="dim"> │ </span><span data-clock></span></div>
+<section data-s="1">
+
+<div class="panel" style="--c:var(--cpu)"><span class="t">cpu</span><span class="t tr">AMD Ryzen 9 7900X · 24 thread</span>
+  <div class="g" style="grid-template-columns:116ch 1fr">
+    <div class="gr" data-key="cpu" data-w="116" data-h="9" data-base=".3" data-vol=".05"></div>
+    <div>
+      <div class="pre"><span class="b">CPU</span> <span class="mt" data-key="cpu" data-w="30"></span> <span class="b" data-num="cpu" data-pad="3" data-unit="%"></span>  <span class="c-yel">62°C</span>  <span class="dim">4.71GHz</span></div>
+      <div class="g" style="grid-template-columns:repeat(3,1fr);margin-top:.2em"><div class="cores" data-n="8" data-w="6"></div><div class="cores" data-from="8" data-n="8" data-w="6"></div><div class="cores" data-from="16" data-n="8" data-w="6"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="g" style="grid-template-columns:72ch 1fr">
+  <div>
+    <div class="panel" style="--c:var(--mem)"><span class="t">mem</span><span class="t tr">31.3 GiB</span>
+      <div class="g" style="grid-template-columns:1fr 22ch">
+        <div>
+          <div class="pre">Usata        <span class="mt" data-key="mem" data-base=".45" data-vol=".01" data-w="22" data-grad="used"></span> <span data-num="mem" data-scale="31.3" data-dec="1" data-pad="5" data-unit="G"></span></div>
+          <div class="pre">Disponibile  <span class="mt" data-v="55" data-w="22" data-grad="mem"></span>  17.1G</div>
+          <div class="pre">Cache        <span class="mt" data-v="28" data-w="22" data-grad="mem"></span>   8.8G</div>
+          <div class="pre">Libera       <span class="mt" data-v="26" data-w="22" data-grad="mem"></span>   8.3G</div>
+          <div class="pre">Swap         <span class="mt" data-v="6" data-w="22" data-grad="used"></span>   0.5G<span class="dim">/8G</span></div>
+          <div class="pre dim">ZRAM 1.2G → 0.4G (3.0×)  Sporca 12M</div>
+        </div>
+        <div class="gr" data-key="mem" data-w="22" data-h="6" data-grad="mem"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="--c:var(--gpu)"><span class="t">gpu0</span><span class="t tr">AMD Radeon RX 6800 · amdgpu</span>
+      <div class="gr" data-key="gpu" data-w="68" data-h="4" data-base=".82" data-vol=".06" data-grad="gpu"></div>
+      <div class="g" style="grid-template-columns:1fr 1fr;margin-top:.25em">
+        <div class="pre">Uso   <span class="mt" data-key="gpu" data-w="16" data-grad="gpu"></span> <span data-num="gpu" data-pad="3" data-unit="%"></span></div>
+        <div class="pre">VRAM  <span class="mt" data-v="74" data-w="14" data-grad="gpu"></span> 11.8<span class="dim">/16G</span></div>
+        <div class="pre">Temp  <span class="c-yel">71°C</span> <span class="dim">giunz.</span> <span class="c-red">84°C</span></div>
+        <div class="pre">Pot.  <span data-num="gpu" data-scale="220" data-pad="3" data-unit="W"></span><span class="dim">/203W</span></div>
+        <div class="pre">Clock <span>2405</span><span class="dim">/1000 MHz</span></div>
+        <div class="pre">Vent. 48% <span class="dim">1650 RPM</span></div>
+        <div class="pre dim">PCIe 4.0 ×16  RX 1.2G/s TX 210M/s</div>
+        <div class="pre dim">ENC 34%  DEC 0%</div>
+      </div>
+    </div>
+
+    <div class="panel" style="--c:var(--net)"><span class="t">net</span><span class="t tr">enp5s0 ‹ ›  192.168.1.10</span>
+      <div class="g" style="grid-template-columns:44ch 1fr">
+        <div><div class="gr" data-key="rx" data-w="44" data-h="3" data-base=".35" data-vol=".1" data-grad="net"></div><div class="gr" data-key="tx" data-w="44" data-h="2" data-base=".15" data-vol=".06" data-grad="up" data-down></div></div>
+        <div>
+          <div class="pre c-net">▼ <span data-num="rx" data-scale="12" data-dec="1" data-unit=" MB/s"></span></div>
+          <div class="pre dim">  picco 98 MB/s</div>
+          <div class="pre dim">  totale 12.4 GiB</div>
+          <div class="pre" style="color:#d2a8ff">▲ <span data-num="tx" data-scale="4" data-dec="1" data-unit=" MB/s"></span></div>
+          <div class="pre dim">  totale 1.9 GiB</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="--c:var(--disk)"><span class="t">dischi</span><span class="t tr">L <span class="c-disk" data-num="dr" data-scale="40" data-dec="1"></span> S <span class="c-proc" data-num="dw" data-scale="25" data-dec="1"></span> MB/s</span>
+      <div class="pre">/          <span class="mt" data-v="44" data-w="24" data-grad="used"></span> 412G<span class="dim">/931G</span> <span class="sp" data-key="dr" data-base=".2" data-vol=".1" data-w="12" data-grad="disk"></span></div>
+      <div class="pre">/home      <span class="mt" data-v="71" data-w="24" data-grad="used"></span> 1.3T<span class="dim">/1.8T</span> <span class="sp" data-key="dw" data-base=".15" data-vol=".1" data-w="12" data-grad="wr"></span></div>
+      <div class="pre">/mnt/dati  <span class="mt" data-v="93" data-w="24" data-grad="used"></span> <span class="c-red">3.4T</span><span class="dim">/3.6T</span> <span class="sp" data-key="d3" data-base=".03" data-vol=".02" data-w="12" data-grad="disk"></span></div>
+    </div>
+  </div>
+
+  <div class="panel" style="--c:var(--proc)"><span class="t">processi</span><span class="t tr">filtro: <span class="w">_</span>  ‹ cpu ›  albero  per-core</span><span class="t tb">412 processi · 5321 thread · selez. 3/412</span>
+    <table class="pt" id="pt1" data-cols="pid,name,cmd,user,thr,mem,cpu,cbar,gpu,vram,disk" data-rows="35" data-selrow="2"></table>
+  </div>
+</div>
+
+<div class="keys"><b>F1</b><span>Aiuto</span><b>F2</b><span>Opzioni</span><b>F3</b><span>Cerca</span><b>F4</b><span>Filtro</span><b>F5</b><span>Albero</span><b>F6</b><span>Ordina</span><b>F7</b><span>Nice-</span><b>F8</b><span>Nice+</span><b>F9</b><span>Segnale</span><b>Tab</b><span>Vista</span><b>1-5</b><span>Sezioni</span><b>F10</b><span>Esci</span></div>
+</section>
+<section data-s="2" hidden>
+
+<div class="g" style="grid-template-columns:1fr 1fr">
+  <div class="panel" style="--c:var(--gpu)"><span class="t">GPU 0 · AMD Radeon RX 6800</span><span class="t tr">Navi 21 · 16 GiB · 0000:03:00.0</span>
+    <div class="pre"><span class="dim">PCIe</span> 4.0 ×16  <span class="dim">RX</span> 1.2 GiB/s  <span class="dim">TX</span> 210 MiB/s   <span class="dim">Clock</span> 2405 MHz <span class="dim">Mem</span> 1000 MHz</div>
+    <div class="pre"><span class="dim">Temp</span> <span class="c-yel">71°C</span> <span class="dim">giunz.</span> <span class="c-red">84°C</span> <span class="dim">mem</span> 78°C   <span class="dim">Ventola</span> 48% 1650 RPM   <span class="dim">Pot.</span> <span data-num="gpu" data-scale="220" data-pad="3"></span>/203 W</div>
+    <div class="pre" style="margin-top:.3em">GPU  [<span class="mt" data-key="gpu" data-base=".86" data-vol=".05" data-w="18" data-grad="gpu"></span>] <span data-num="gpu" data-pad="3" data-unit="%"></span>   VRAM [<span class="mt" data-v="74" data-w="16" data-grad="gpu"></span>] 11.8/16.0 GiB</div>
+    <div class="pre">ENC  [<span class="mt" data-key="enc" data-base=".34" data-vol=".04" data-w="18" data-grad="up"></span>] <span data-num="enc" data-pad="3" data-unit="%"></span>   DEC  [<span class="mt" data-v="0" data-w="16" data-grad="up"></span>]   0%  GTT 0.4 GiB</div>
+  </div>
+  <div class="panel" style="--c:#7d8590"><span class="t">GPU 1 · AMD Raphael (integrata)</span><span class="t tr">512 MiB UMA · 0000:12:00.0</span>
+    <div class="pre"><span class="dim">PCIe</span> —            <span class="dim">Clock</span> 400 MHz <span class="dim">Mem</span> 2400 MHz   <span class="dim">stato</span> D3cold <span class="dim">(spenta)</span></div>
+    <div class="pre"><span class="dim">Temp</span> 48°C   <span class="dim">Ventola</span> —   <span class="dim">Pot.</span> 3/— W</div>
+    <div class="pre" style="margin-top:.3em">GPU  [<span class="mt" data-key="igpu" data-base=".03" data-vol=".02" data-w="18" data-grad="gpu"></span>] <span data-num="igpu" data-pad="3" data-unit="%"></span>   VRAM [<span class="mt" data-v="9" data-w="16" data-grad="gpu"></span>] 0.05/0.5 GiB</div>
+    <div class="pre">ENC  [<span class="mt" data-v="0" data-w="18" data-grad="up"></span>]   0%   DEC  [<span class="mt" data-v="12" data-w="16" data-grad="up"></span>]  12%  GTT 0.2 GiB</div>
+  </div>
+</div>
+
+<div class="g" style="grid-template-columns:1fr 48ch">
+  <div class="panel" style="--c:var(--gpu)"><span class="t">cronologia GPU 0</span><span class="t tr"><span class="c-gpu">━ uso</span>  <span class="c-mem">━ VRAM</span>  <span class="c-yel">━ temp</span>   ‹ 2 min ›</span>
+    <div class="g" style="grid-template-columns:5ch 1fr">
+      <div class="pre dim">100%
+
+
+ 50%
+
+
+
+  0%</div>
+      <div class="gr" data-key="gpu" data-w="108" data-h="8" data-grad="gpu"></div>
+      <div class="pre dim">VRAM</div>
+      <div class="gr" data-key="vram" data-w="108" data-h="3" data-base=".74" data-vol=".01" data-grad="mem"></div>
+      <div class="pre dim">°C</div>
+      <div class="sp" data-key="gtemp" data-base=".7" data-vol=".02" data-w="108" data-grad="temp"></div>
+    </div>
+  </div>
+  <div>
+    <div class="panel" style="--c:var(--gpu)"><span class="t">motori · GPU 0</span>
+      <div class="pre">3D / gfx     <span class="mt" data-key="gpu" data-w="18" data-grad="gpu"></span> <span data-num="gpu" data-pad="3" data-unit="%"></span></div>
+      <div class="pre">Calcolo      <span class="mt" data-key="comp" data-base=".12" data-vol=".05" data-w="18" data-grad="gpu"></span> <span data-num="comp" data-pad="3" data-unit="%"></span></div>
+      <div class="pre">Copia (DMA)  <span class="mt" data-key="dma" data-base=".08" data-vol=".04" data-w="18" data-grad="gpu"></span> <span data-num="dma" data-pad="3" data-unit="%"></span></div>
+      <div class="pre">VCN codif.   <span class="mt" data-key="enc" data-w="18" data-grad="up"></span> <span data-num="enc" data-pad="3" data-unit="%"></span></div>
+      <div class="pre">VCN decod.   <span class="mt" data-v="0" data-w="18" data-grad="up"></span>   0%</div>
+    </div>
+    <div class="panel" style="--c:var(--yel)"><span class="t">energia</span>
+      <div class="pre">Potenza  <span class="sp" data-key="gpu" data-w="22" data-grad="cpu"></span> <span data-num="gpu" data-scale="220" data-pad="3" data-unit=" W"></span></div>
+      <div class="pre">Limite   203 W <span class="dim">(max 230 W)</span> · OD off</div>
+      <div class="pre">Profilo  <span class="w">3D_FULL_SCREEN</span> <span class="dim">‹ ›</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="--c:var(--proc)"><span class="t">processi GPU</span><span class="t tr">ordina: ‹ VRAM ›  7 processi · 13.2 GiB</span>
+  <table class="pt" id="pt4" data-cols="pid,user,dev,gtype,gpu,gbar,enc,vram,cpu,mem,name,cmd" data-rows="8" data-sort="vram" data-filter="gpu" data-selrow="0"></table>
+</div>
+
+<div class="keys"><b>d</b><span>Dispositivo</span><b>F2</b><span>Opzioni</span><b>F6</b><span>Ordina</span><b>F9</b><span>Segnale</span><b>p</b><span>Profilo potenza</span><b>+/-</b><span>Intervallo</span><b>Tab</b><span>Vista</span><b>q</b><span>Esci</span></div>
+</section>
+<section data-s="3" hidden>
+
+<div class="g" style="grid-template-columns:96ch 1fr">
+  <div class="panel" style="--c:var(--proc)"><span class="t">albero processi</span><span class="t tr">filtro: <span class="w">utente=alex</span> ✕</span><span class="t tb">43 processi · ▸ chiuso  ▾ aperto · Spazio piega</span>
+    <table class="pt" data-cols="pid,user,cpu,mem,gpu,name" data-rows="42" data-tree data-sel="2001"></table>
+  </div>
+
+  <div>
+    <div class="panel" style="--c:var(--net)"><span class="t">firefox · PID 2001</span><span class="t tr">alex</span>
+      <div class="tabs" style="--c:var(--net);margin-bottom:.4em"><span class="on">Generale</span><span>Thread 96</span><span>File 412</span><span>Rete 38</span><span>Ambiente</span><span>Limiti</span><span>cgroup</span></div>
+      <div class="pre"><span class="dim">Comando   </span>/usr/lib/firefox/firefox</div>
+      <div class="pre"><span class="dim">Cartella  </span>/home/alex</div>
+      <div class="pre"><span class="dim">Genitore  </span>1544 plasmashell</div>
+      <div class="pre"><span class="dim">Avviato   </span>oggi 07:41 <span class="dim">(1h 21m fa)</span></div>
+      <div class="pre"><span class="dim">Stato     </span><span class="c-grn">S (in attesa)</span>   <span class="dim">Nice</span> 0  <span class="dim">Prio</span> 20  <span class="dim">Sched</span> OTHER</div>
+      <div class="pre"><span class="dim">Affinità  </span>0-23   <span class="dim">ultimo core</span> 7</div>
+      <div class="pre"><span class="dim">cgroup    </span>app-firefox@a41f.scope</div>
+      <div class="pre"><span class="dim">Sandbox   </span>seccomp · namespace utente</div>
+    </div>
+    <div class="panel" style="--c:var(--cpu)"><span class="t">CPU</span><span class="t tr">totale sottoalbero 13.3%</span>
+      <div class="gr" data-key="ff" data-base=".15" data-vol=".06" data-w="70" data-h="4"></div>
+    </div>
+    <div class="panel" style="--c:var(--mem)"><span class="t">memoria e I/O</span>
+      <div class="g" style="grid-template-columns:1fr 1fr">
+        <div class="pre"><span class="dim">RSS  </span> 1.84 GiB</div><div class="pre"><span class="dim">Letti   </span> 2.1 GiB</div>
+        <div class="pre"><span class="dim">PSS  </span> 1.52 GiB</div><div class="pre"><span class="dim">Scritti </span> 640 MiB</div>
+        <div class="pre"><span class="dim">Cond.</span> 410 MiB</div><div class="pre"><span class="dim">L/s     </span> <span data-num="ffr" data-scale="2" data-dec="1" data-unit=" MB"></span></div>
+        <div class="pre"><span class="dim">Swap </span> 0</div><div class="pre"><span class="dim">S/s     </span> 0.1 MB</div>
+        <div class="pre"><span class="dim">VRAM </span> 420 MiB</div><div class="pre"><span class="dim">Rete    </span> ▼2.4 ▲0.3 Mb/s</div>
+      </div>
+      <div class="pre" style="margin-top:.3em"><span class="dim">Limite cgroup</span> <span class="mt" data-v="23" data-w="30" data-grad="used"></span> 1.84/8 GiB</div>
+    </div>
+    <div class="panel" style="--c:var(--line)"><span class="t">azioni</span>
+      <div class="pre"><span class="w">F9</span> segnale   <span class="w">F7/F8</span> nice   <span class="w">a</span> affinità   <span class="w">i</span> priorità I/O</div>
+      <div class="pre"><span class="w">l</span>  file aperti   <span class="w">s</span> strace   <span class="w">c</span> copia comando   <span class="w">o</span> apri cartella</div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal" hidden><span class="t" style="position:absolute;top:-.72em;left:1.5ch;background:var(--bg);padding:0 .5ch;color:var(--red);font-weight:700">Invia segnale</span>
+  <div class="pre">Processo: <span class="w b">2001 firefox</span> <span class="dim">e 3 figli</span></div>
+  <div class="pre dim" style="margin-bottom:.4em">/usr/lib/firefox/firefox</div>
+  <div class="opt">  ( ) 15 SIGTERM   chiedi di chiudersi (consigliato)</div>
+  <div class="opt on"> ▸(•)  9 SIGKILL   termina subito, senza salvare</div>
+  <div class="opt">  ( ) 19 SIGSTOP   sospendi</div>
+  <div class="opt">  ( ) 18 SIGCONT   riprendi</div>
+  <div class="opt">  ( )  1 SIGHUP    ricarica configurazione</div>
+  <div class="opt dim">      altri…</div>
+  <div class="pre" style="margin-top:.4em">  [x] applica a tutto il sottoalbero (4 processi)</div>
+  <div class="pre" style="margin-top:.6em;text-align:right"><span class="btn">Esc Annulla</span>  <span class="btn on">Invio Invia SIGKILL</span></div>
+</div>
+
+<div class="keys"><b>F3</b><span>Cerca</span><b>F4</b><span>Filtro</span><b>F5</b><span>Lista/Albero</span><b>Spazio</b><span>Piega ramo</span><b>Invio</b><span>Dettaglio</span><b>F7/F8</b><span>Nice</span><b>F9</b><span>Segnale</span><b>Esc</b><span>Chiudi</span><b>q</b><span>Esci</span></div>
+</section>
+<section data-s="4" hidden>
+
+<div class="g" style="grid-template-columns:1fr 62ch">
+  <div class="panel" style="--c:var(--net)"><span class="t">enp5s0</span><span class="t tr">1 Gbit/s full-duplex · 192.168.1.10/24 · fe80::a2c:…</span>
+    <div class="g" style="grid-template-columns:86ch 1fr">
+      <div><div class="gr" data-key="rx" data-base=".35" data-vol=".1" data-w="86" data-h="4" data-grad="net"></div><div class="gr" data-key="tx" data-base=".15" data-vol=".06" data-w="86" data-h="3" data-grad="up" data-down></div></div>
+      <div>
+        <div class="pre c-net b">▼ Ricezione</div>
+        <div class="pre"><span class="w" data-num="rx" data-scale="12" data-dec="1" data-unit=" MB/s"></span></div>
+        <div class="pre dim">picco 98.1 MB/s</div>
+        <div class="pre dim">totale 12.4 GiB</div>
+        <div class="pre b" style="color:#d2a8ff;margin-top:.3em">▲ Invio</div>
+        <div class="pre"><span class="w" data-num="tx" data-scale="4" data-dec="1" data-unit=" MB/s"></span></div>
+        <div class="pre dim">totale 1.9 GiB</div>
+      </div>
+    </div>
+  </div>
+  <div class="panel" style="--c:var(--net)"><span class="t">interfacce</span><span class="t tr">‹ › cambia</span>
+    <table class="lt">
+      <tr><th>Nome</th><th>Indirizzo</th><th class="r">▼</th><th class="r">▲</th><th></th></tr>
+      <tr class="sel"><td>enp5s0</td><td>192.168.1.10</td><td class="r" data-num="rx" data-scale="12" data-dec="1" data-unit="M"></td><td class="r" data-num="tx" data-scale="4" data-dec="1" data-unit="M"></td><td class="c-grn">● su</td></tr>
+      <tr><td>wlp6s0</td><td class="dim">—</td><td class="r">0</td><td class="r">0</td><td class="dim">○ giù</td></tr>
+      <tr><td>tailscale0</td><td>100.81.4.22</td><td class="r">0.1K</td><td class="r">0.2K</td><td class="c-grn">● su</td></tr>
+      <tr><td>wg0</td><td>10.8.0.2</td><td class="r">0</td><td class="r">0</td><td class="c-yel">◐ inatt.</td></tr>
+      <tr><td>docker0</td><td>172.17.0.1</td><td class="r">12K</td><td class="r">3K</td><td class="c-grn">● su</td></tr>
+      <tr><td>veth3a1f</td><td class="dim">postgres</td><td class="r">12K</td><td class="r">3K</td><td class="c-grn">● su</td></tr>
+      <tr><td>lo</td><td>127.0.0.1</td><td class="r">48K</td><td class="r">48K</td><td class="c-grn">● su</td></tr>
+    </table>
+    <div class="pre dim" style="margin-top:.2em">DNS 192.168.1.1 · gateway 192.168.1.1 · ping 0.4 ms</div>
+  </div>
+</div>
+
+<div class="panel" style="--c:var(--proc)"><span class="t">connessioni</span><span class="t tr">‹ TCP+UDP › stato: tutte · 38 aperte · ordina ‹ ▼ ›</span>
+  <table class="lt" id="conn"></table>
+</div>
+
+<div class="g" style="grid-template-columns:1fr 1fr">
+  <div class="panel" style="--c:var(--disk)"><span class="t">nvme0n1</span><span class="t tr">Samsung 990 PRO 2TB · NVMe · 41°C · salute 98%</span>
+    <div class="g" style="grid-template-columns:52ch 1fr">
+      <div><div class="gr" data-key="dr" data-base=".2" data-vol=".1" data-w="52" data-h="3" data-grad="disk"></div><div class="gr" data-key="dw" data-base=".15" data-vol=".1" data-w="52" data-h="3" data-grad="wr" data-down></div></div>
+      <div>
+        <div class="pre"><span class="c-disk">L</span> <span data-num="dr" data-scale="40" data-dec="1" data-pad="5" data-unit=" MB/s"></span></div>
+        <div class="pre"><span class="c-proc">S</span> <span data-num="dw" data-scale="25" data-dec="1" data-pad="5" data-unit=" MB/s"></span></div>
+        <div class="pre"><span class="dim">IOPS </span> <span data-num="dr" data-scale="3000"></span></div>
+        <div class="pre"><span class="dim">Uso  </span> <span data-num="dr" data-scale="30" data-unit="%"></span></div>
+        <div class="pre"><span class="dim">Lat. </span> 0.12 ms</div>
+        <div class="pre"><span class="dim">Coda </span> 0.4</div>
+      </div>
+    </div>
+  </div>
+  <div class="panel" style="--c:var(--disk)"><span class="t">sda</span><span class="t tr">WDC WD40EFRX 4TB · HDD · 36°C · SMART ok</span>
+    <div class="g" style="grid-template-columns:52ch 1fr">
+      <div><div class="gr" data-key="sr" data-base=".04" data-vol=".04" data-w="52" data-h="3" data-grad="disk"></div><div class="gr" data-key="sw" data-base=".02" data-vol=".02" data-w="52" data-h="3" data-grad="wr" data-down></div></div>
+      <div>
+        <div class="pre"><span class="c-disk">L</span> <span data-num="sr" data-scale="160" data-dec="1" data-pad="5" data-unit=" MB/s"></span></div>
+        <div class="pre"><span class="c-proc">S</span> <span data-num="sw" data-scale="140" data-dec="1" data-pad="5" data-unit=" MB/s"></span></div>
+        <div class="pre"><span class="dim">IOPS </span> <span data-num="sr" data-scale="180"></span></div>
+        <div class="pre"><span class="dim">Uso  </span> <span data-num="sr" data-scale="100" data-unit="%"></span></div>
+        <div class="pre"><span class="dim">Lat. </span> <span class="c-yel">8.4 ms</span></div>
+        <div class="pre"><span class="dim">Coda </span> 1.2</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="--c:var(--disk)"><span class="t">filesystem</span><span class="t tr">nascondi tmpfs/overlay: sì</span>
+  <table class="lt">
+    <tr><th>Montato su</th><th>Dispositivo</th><th>Tipo</th><th>Uso</th><th class="r">Usato</th><th class="r">Libero</th><th class="r">Totale</th><th class="r">Inode</th><th>Opzioni</th></tr>
+    <tr><td>/</td><td>nvme0n1p2</td><td>btrfs</td><td><span class="mt" data-v="44" data-w="40" data-grad="used"></span>  44%</td><td class="r">412G</td><td class="r">519G</td><td class="r">931G</td><td class="r">—</td><td class="dim">rw,noatime,compress=zstd:1</td></tr>
+    <tr><td>/home</td><td>nvme0n1p3</td><td>btrfs</td><td><span class="mt" data-v="71" data-w="40" data-grad="used"></span>  71%</td><td class="r">1.3T</td><td class="r">0.5T</td><td class="r">1.8T</td><td class="r">—</td><td class="dim">rw,noatime,compress=zstd:1</td></tr>
+    <tr><td>/boot/efi</td><td>nvme0n1p1</td><td>vfat</td><td><span class="mt" data-v="12" data-w="40" data-grad="used"></span>  12%</td><td class="r">62M</td><td class="r">450M</td><td class="r">512M</td><td class="r">—</td><td class="dim">rw,relatime</td></tr>
+    <tr><td>/mnt/dati</td><td>sda1</td><td>ext4</td><td><span class="mt" data-v="93" data-w="40" data-grad="used"></span>  <span class="c-red">93%</span></td><td class="r">3.4T</td><td class="r c-red">0.2T</td><td class="r">3.6T</td><td class="r">4%</td><td class="dim">rw,relatime</td></tr>
+    <tr><td>/mnt/nas</td><td>192.168.1.2:/srv</td><td>nfs4</td><td><span class="mt" data-v="58" data-w="40" data-grad="used"></span>  58%</td><td class="r">5.2T</td><td class="r">3.8T</td><td class="r">9.0T</td><td class="r">—</td><td class="dim">rw,vers=4.2</td></tr>
+  </table>
+</div>
+
+<div class="keys"><b>i</b><span>Interfaccia</span><b>c</b><span>Connessioni TCP/UDP</span><b>Invio</b><span>Vai al processo</span><b>r</b><span>Risolvi nomi</span><b>z</b><span>Azzera totali</span><b>F6</b><span>Ordina</span><b>q</b><span>Esci</span></div>
+</section>
+<section data-s="5" hidden>
+
+<div class="g" style="grid-template-columns:104ch 1fr">
+  <div class="panel" style="--c:var(--net)"><span class="t">unità systemd</span><span class="t tr">/ docker_</span>
+    <div class="top" style="gap:1ch;margin-bottom:.4em"><span class="chip">Tutti 312</span><span class="chip on">Attivi 148</span><span class="chip" style="color:var(--red)">Falliti 2</span><span class="chip">Abilitati 96</span><span class="chip">Timer 18</span><span class="chip">Socket 31</span><span class="grow"></span><span class="dim">‹ sistema │ utente ›</span></div>
+    <table class="lt">
+      <tr><th>Unità</th><th>Descrizione</th><th>Stato</th><th>Avvio</th><th class="r">PID</th><th class="r">Mem</th><th class="r">CPU</th></tr>
+      <tr><td>bluetooth.service</td><td class="dim">Bluetooth service</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">688</td><td class="r">6M</td><td class="r">0.0</td></tr>
+      <tr><td>containerd.service</td><td class="dim">containerd container runtime</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">1290</td><td class="r">48M</td><td class="r">0.2</td></tr>
+      <tr><td>cups.service</td><td class="dim">CUPS Scheduler</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">4120</td><td class="r">11M</td><td class="r">0.0</td></tr>
+      <tr class="sel"><td>docker.service</td><td>Docker Application Container…</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">1022</td><td class="r">96M</td><td class="r">0.4</td></tr>
+      <tr><td>fwupd.service</td><td class="dim">Firmware update daemon</td><td class="dim">○ inattivo</td><td class="dim">statico</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>llama-swap.service</td><td class="dim">LLM proxy (llama-swap)</td><td class="c-red">✖ fallito</td><td>abilitato</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>NetworkManager.service</td><td class="dim">Network Manager</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">688</td><td class="r">21M</td><td class="r">0.1</td></tr>
+      <tr><td>nfs-client.target</td><td class="dim">NFS client services</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>postgresql.service</td><td class="dim">PostgreSQL 17</td><td class="c-grn">● attivo</td><td>disabilitato</td><td class="r">1305</td><td class="r">186M</td><td class="r">0.6</td></tr>
+      <tr><td>smartd.service</td><td class="dim">Self Monitoring and Reporting…</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">4188</td><td class="r">5M</td><td class="r">0.0</td></tr>
+      <tr><td>snapper-timeline.timer</td><td class="dim">Timeline of Snapper Snapshots</td><td class="c-yel">◷ attende</td><td>abilitato</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>sshd.service</td><td class="dim">OpenSSH Daemon</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">901</td><td class="r">8M</td><td class="r">0.0</td></tr>
+      <tr><td>systemd-journald.service</td><td class="dim">Journal Service</td><td class="c-grn">● attivo</td><td class="dim">statico</td><td class="r">402</td><td class="r">52M</td><td class="r">0.2</td></tr>
+      <tr><td>tailscaled.service</td><td class="dim">Tailscale node agent</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r">1180</td><td class="r">38M</td><td class="r">0.1</td></tr>
+      <tr><td>ufw.service</td><td class="dim">CLI Netfilter Manager</td><td class="c-grn">● attivo</td><td>abilitato</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+      <tr><td>update-notifier.service</td><td class="dim">Check for available updates</td><td class="c-red">✖ fallito</td><td class="dim">statico</td><td class="r dim">—</td><td class="r dim">—</td><td class="r dim">—</td></tr>
+    </table>
+  </div>
+
+  <div class="panel" style="--c:var(--grn)"><span class="t">docker.service</span><span class="t tr">/usr/lib/systemd/system/docker.service</span>
+    <div class="pre"><span class="dim">Stato    </span><span class="c-grn">● active (running)</span> da oggi 07:38:12 <span class="dim">(1h 25m)</span></div>
+    <div class="pre"><span class="dim">PID      </span>1022 dockerd · 22 task · <span class="dim">limite</span> 4915</div>
+    <div class="pre"><span class="dim">Memoria  </span>96.4M <span class="dim">(picco 212M)</span>   <span class="dim">CPU</span> 1min 42s</div>
+    <div class="pre"><span class="dim">Dipende  </span>network-online.target docker.socket containerd</div>
+    <div class="pre"><span class="dim">Riavvii  </span>0   <span class="dim">Restart=</span>always</div>
+    <div class="pre dim" style="margin-top:.4em">── registro (journalctl -u docker -f) ──────────────────────</div>
+    <div class="log">
+      <div><span class="dim">07:38:12</span> <span class="c-grn">Started docker.service - Docker Application Contai…</span></div>
+      <div><span class="dim">07:38:12</span> API listen on /run/docker.sock</div>
+      <div><span class="dim">07:38:14</span> Loading containers: done.</div>
+      <div><span class="dim">07:38:14</span> <span class="c-yel">WARNING: bridge-nf-call-iptables is disabled</span></div>
+      <div><span class="dim">07:38:15</span> Docker daemon commit=7a1f2c3 version=28.4.0</div>
+      <div><span class="dim">08:12:40</span> ignoring event module=libcontainerd topic=/tasks/…</div>
+      <div><span class="dim">08:51:03</span> <span class="c-red">error pulling image: context deadline exceeded</span></div>
+      <div><span class="dim">08:51:09</span> Container 3a1f postgres: health_status=healthy</div>
+      <div><span class="dim">09:01:22</span> ignoring event module=libcontainerd topic=/tasks/…</div>
+    </div>
+    <div class="pre" style="margin-top:.5em"><span class="btn">s Avvia</span> <span class="btn">t Ferma</span> <span class="btn">r Riavvia</span> <span class="btn">e Abilita</span> <span class="btn">j Registro</span></div>
+  </div>
+</div>
+
+<div class="g" style="grid-template-columns:104ch 1fr">
+  <div class="panel" style="--c:var(--yel)"><span class="t">avvio</span><span class="t tr">ultimo avvio: oggi 07:37 · 19.9 s</span>
+    <div class="pre"><span style="color:#8b949e">█████████████</span><span style="color:#58a6ff">██</span><span style="color:#bc8cff">████</span><span style="color:#39c5cf">███</span><span style="color:#e3b341">██████████</span></div>
+    <div class="pre"><span style="color:#8b949e">■ firmware 8.1s</span> <span style="color:#58a6ff">■ loader 1.2s</span> <span style="color:#bc8cff">■ kernel 2.3s</span> <span style="color:#39c5cf">■ initrd 1.9s</span> <span style="color:#e3b341">■ servizi 6.4s</span></div>
+    <div class="pre dim" style="margin-top:.3em">più lenti (systemd-analyze blame)</div>
+    <div class="pre">  NetworkManager-wait-online.service  <span class="mt" data-v="100" data-w="30" data-grad="disk"></span>  4.10 s  <span class="dim">→ si può disabilitare</span></div>
+    <div class="pre">  docker.service                      <span class="mt" data-v="46" data-w="30" data-grad="disk"></span>  1.88 s</div>
+    <div class="pre">  snapd.seeded.service                <span class="mt" data-v="31" data-w="30" data-grad="disk"></span>  1.27 s</div>
+    <div class="pre">  plymouth-quit-wait.service          <span class="mt" data-v="22" data-w="30" data-grad="disk"></span>  0.91 s</div>
+  </div>
+  <div class="panel" style="--c:var(--mem)"><span class="t">utenti e sessioni</span>
+    <table class="lt">
+      <tr><th>Utente</th><th>Sessione</th><th>Da</th><th>Dal</th><th class="r">Proc.</th><th class="r">CPU</th><th class="r">Mem</th></tr>
+      <tr><td class="w">alex</td><td>seat0 tty2 wayland</td><td>KDE Plasma</td><td>07:38</td><td class="r">291</td><td class="r">68%</td><td class="r">17.9G</td></tr>
+      <tr><td class="w">alex</td><td>pts/3 ssh</td><td>192.168.1.33</td><td>08:44</td><td class="r">4</td><td class="r">0.1%</td><td class="r">22M</td></tr>
+      <tr><td>root</td><td class="dim">— sistema</td><td></td><td>07:37</td><td class="r">108</td><td class="r">1.4%</td><td class="r">612M</td></tr>
+      <tr><td>999</td><td class="dim">— container</td><td>docker</td><td>07:38</td><td class="r">9</td><td class="r">0.6%</td><td class="r">186M</td></tr>
+    </table>
+    <div class="pre" style="margin-top:.4em"><span class="btn">x Disconnetti sessione</span> <span class="btn">m Invia messaggio</span></div>
+  </div>
+</div>
+
+<div class="keys"><b>/</b><span>Cerca</span><b>Tab</b><span>Filtro</span><b>u</b><span>Sistema/Utente</span><b>s t r</b><span>Avvia/Ferma/Riavvia</span><b>e</b><span>Abilita/Disabilita</span><b>j</b><span>Registro</span><b>Invio</b><span>Apri unità</span><b>q</b><span>Esci</span></div>
+</section>
+</div>
+
+<div id="small" hidden>
+<div class="top"><span class="inv b"> ngtop </span><span> workstation  su 3g 04:12  carico 2.41</span><span class="grow"></span><span data-clock class="dim"></span></div>
+<div class="pre"><span class="b c-cpu">CPU</span> <span class="mt" data-key="cpu" data-base=".3" data-vol=".05" data-w="34"></span> <span data-num="cpu" data-pad="3" data-unit="%"></span> <span class="c-yel">62°</span> 4.7GHz <span id="cc"></span></div>
+<div class="pre"><span class="b c-mem">MEM</span> <span class="mt" data-v="45" data-w="34" data-grad="used"></span> 14.2/31.3G  <span class="dim">swp</span> 0.5/8G</div>
+<div class="pre"><span class="b c-gpu">GPU</span> <span class="mt" data-key="gpu" data-base=".86" data-vol=".05" data-w="34" data-grad="gpu"></span> <span data-num="gpu" data-pad="3" data-unit="%"></span> <span class="c-yel">71°</span> <span data-num="gpu" data-scale="220" data-unit="W"></span> <span class="dim">vram</span> 11.8/16G</div>
+<div class="pre"><span class="b c-net">NET</span> <span class="c-net">▼</span><span data-num="rx" data-scale="12" data-dec="1" data-pad="5" data-unit="M"></span> <span class="sp" data-key="rx" data-base=".35" data-vol=".1" data-w="13" data-grad="net"></span> <span style="color:#d2a8ff">▲</span><span data-num="tx" data-scale="4" data-dec="1" data-pad="5" data-unit="M"></span> <span class="sp" data-key="tx" data-base=".15" data-vol=".06" data-w="13" data-grad="up"></span> <span class="dim">enp5s0</span></div>
+<div class="pre"><span class="b c-disk">DSK</span> <span class="dim">L</span><span data-num="dr" data-base=".2" data-scale="40" data-dec="1" data-pad="5" data-unit="M"></span> <span class="dim">S</span><span data-num="dw" data-scale="25" data-dec="1" data-pad="5" data-unit="M"></span>  /  44%  /home 71%  <span class="c-red">/mnt/dati 93%</span></div>
+<div class="pre sep">────────────────────────────────────────────────────────────────────────────────</div>
+<table class="pt" data-cols="pid,user,cpu,mem,gpu,name" data-rows="13" data-selrow="0"></table>
+<div class="keys" style="margin-top:.2em"><b>h</b><span>Aiuto</span><b>/</b><span>Cerca</span><b>s</b><span>Ordina</span><b>t</b><span>Albero</span><b>k</b><span>Termina</span><b>q</b><span>Esci</span></div>
+</div>
+
+</div></div>
+<script src="tui.js"></script>
+<script>
+const C = [
+  ['TCP', '192.168.1.10:51842', '151.101.1.140:443', 'reddit.map.fastly.net', 'ESTAB', 2001, 'firefox', 1.8, .05],
+  ['TCP', '192.168.1.10:44120', '160.79.104.10:443', 'api.anthropic.com', 'ESTAB', 2602, 'claude', .3, .2],
+  ['UDP', '0.0.0.0:27036', '185.25.182.77:27017', 'valve (Steam)', '—', 3200, 'steam', .6, .1],
+  ['TCP', '192.168.1.10:22000', '192.168.1.2:22000', 'nas.lan', 'ESTAB', 4090, 'syncthing', 1.1, .4],
+  ['TCP', '192.168.1.10:39012', '149.154.167.51:443', 'telegram', 'ESTAB', 3702, 'telegram-deskto', .1, .02],
+  ['TCP', '0.0.0.0:22', '*', '', 'LISTEN', 901, 'sshd', 0, 0],
+  ['TCP', '127.0.0.1:5432', '*', '', 'LISTEN', 1305, 'postgres', 0, 0],
+  ['TCP', '192.168.1.10:22', '192.168.1.33:50122', 'telefono.lan', 'ESTAB', 901, 'sshd', .01, .03],
+];
+
+function show(n) {
+  document.querySelectorAll('section').forEach(s => s.hidden = s.dataset.s != n);
+  document.querySelectorAll('#tabs span').forEach(t => t.classList.toggle('on', t.dataset.s == n));
+  document.getElementById('modal').hidden = true;
+  cur = n;
+}
+let cur = 1;
+document.getElementById('tabs').onclick = e => e.target.dataset.s && show(+e.target.dataset.s);
+addEventListener('keydown', e => {
+  if (e.key >= '1' && e.key <= '5') show(+e.key);
+  else if (e.key === 'Tab') { e.preventDefault(); show((cur + (e.shiftKey ? 3 : 0)) % 5 + 1); }
+  else if (e.key === 'F9' && cur === 3) { e.preventDefault(); document.getElementById('modal').hidden = false; }
+  else if (e.key === 'Escape') document.getElementById('modal').hidden = true;
+});
+function size(small) {
+  document.getElementById('big').hidden = small; document.getElementById('small').hidden = !small;
+  document.getElementById('scr').style.width = small ? '82ch' : '182ch';
+  document.getElementById('wt').textContent = small ? 'ngtop — 80×24' : 'ngtop — 182×52';
+  document.getElementById('bBig').classList.toggle('on', !small); document.getElementById('bSmall').classList.toggle('on', small);
+}
+document.getElementById('bBig').onclick = () => size(false);
+document.getElementById('bSmall').onclick = () => size(true);
+const h = location.hash.slice(1);
+if (h === 'piccolo') size(true); else if (+h) show(+h);
+if (h === 'f9') { show(3); document.getElementById('modal').hidden = false; }
+NG.start(() => {
+  const j = v => v * Math.max(0, 1 + (Math.random() - .5) * .6);
+  let h = '<tr><th>Proto</th><th>Locale</th><th>Remoto</th><th>Nome remoto</th><th>Stato</th><th class="r">PID</th><th>Processo</th><th class="r">▼ Mb/s</th><th class="r">▲ Mb/s</th><th>Traffico</th></tr>';
+  C.forEach((c, i) => {
+    const rx = j(c[7]), tx = j(c[8]);
+    h += `<tr class="${i === 0 ? 'sel' : ''}"><td>${c[0]}</td><td>${c[1]}</td><td>${c[2]}</td><td class="dim">${c[3]}</td><td class="${c[4] === 'LISTEN' ? 'c-yel' : 'c-grn'}">${c[4]}</td><td class="r">${c[5]}</td><td>${c[6]}</td><td class="r">${rx ? rx.toFixed(2) : '—'}</td><td class="r">${tx ? tx.toFixed(2) : '—'}</td><td>${NG.bar(Math.min(1, rx / 2), 16, 'net')}</td></tr>`;
+  });
+  document.getElementById('conn').innerHTML = h;
+  let cc = '';
+  for (let i = 0; i < 24; i++) { const v = NG.cur('c' + i); cc += `<span style="color:${NG.grad('cpu', v)}">${NG.SP[Math.min(7, Math.floor(v * 8))]}</span>`; }
+  document.getElementById('cc').innerHTML = cc;
+});
+</script>
+</body></html>

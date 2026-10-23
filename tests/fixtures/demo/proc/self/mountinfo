@@ -1,0 +1,4 @@
+22 1 259:2 / / rw,relatime - ext4 /dev/nvme0n1p2 rw
+23 22 0:5 / /proc rw - proc proc rw
+24 22 259:1 / /home rw,relatime - ext4 /dev/nvme0n1p2 rw
+25 22 8:1 / /mnt rw,relatime - xfs /dev/sda1 rw
