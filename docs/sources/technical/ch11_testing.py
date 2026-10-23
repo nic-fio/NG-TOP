@@ -119,7 +119,7 @@ S6 = table(["Command", "When"], [
     [c("cargo clippy --all-targets -- -D warnings"), "The linter; warnings are errors"],
     [c("cargo fmt"), "Formatting"],
     [c("build.sh") + " then " + c("scripts/test-distro.sh"), "Before a release, or after a change that touches system calls, files or the terminal"],
-    [c("scripts/test-remote.sh"), "After a change in " + c("src/remote/") + ", " + sysf("agent.sh") + " or the remote services backend"],
+    [c("scripts/test-remote.sh"), "After a change in " + c("src/remote/") + ", " + c("agent.sh") + " or the remote services backend"],
     [c("ngtop --bench"), "After a change in a collector or in drawing (" + rif("Performance") + ")"],
     [c("python3 docs/sources/build.py --check"), "After a change in code that the manuals describe: it verifies the cited functions and files and that the numbers are up to date"],
 ], "«TAB» — What to run, and when")

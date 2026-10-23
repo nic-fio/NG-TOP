@@ -103,11 +103,11 @@ S_RHOSTKEY = p("<b>Host key and password prompts.</b> They appear on the termina
                "If ssh says that the host key has changed, it refuses to continue: ngtop exits with " + ui("cannot connect") + ". Check why the "
                "server changed before you remove the old key from <code>known_hosts</code>.", lead=True)
 
-S_RRECONNECT = p("<b>ngtop stays offline after a drop, or asks for the password at every reconnection.</b> It cannot ask: the reconnection runs "
-                 "without a terminal. It works only with a key without passphrase or with an ssh agent. Load your key with <code>ssh-add</code>, "
+S_RRECONNECT = p("<b>ngtop says \"connection failed… Permission denied\" after a drop.</b> The reconnection cannot ask for a password: it runs "
+                 "without a terminal, and when the server accepts only passwords it is refused and ngtop stops trying. It works only with a key without passphrase or with an ssh agent. Load your key with <code>ssh-add</code>, "
                  "or quit and start ngtop again (" + rif("Lost connection and reconnection") + ").", lead=True)
 
-S_RJOURNAL = p("<b>The journal of a remote server is empty.</b> It is read with the rights of the user you log in as. Use a user of the group "
+S_RJOURNAL = p("<b>The journal of a remote server is empty, or says that it needs more permissions.</b> It is read with the rights of the user you log in as. Use a user of the group "
                "<code>systemd-journal</code>, or root (" + rif("Services on a remote machine") + ").", lead=True)
 
 S_RSLOW = p("<b>The data of a remote machine arrive slowly.</b> Look at the latency in the tab bar: red means more than 200 ms. If updates take longer than "

@@ -54,7 +54,7 @@ S_BAR = p("On a remote machine the left side of the tab bar looks like the usual
          "you typed). The tab bar always carries this mark, so you never take a remote screen for your own."],
         [ui("23 ms"), "The <b>latency</b>: the time of one round trip to the server. <b>Green</b> below 50 ms, <b>yellow</b> below 200 ms, <b>red</b> above."],
         [ui("offline"), "In red, instead of the latency: the connection is down (see below)."],
-        ["The rest", "Uptime, load average, refresh interval and clock are those <b>of the server</b>."],
+        ["The rest", "Uptime and load average are those <b>of the server</b>. The clock is the time of your PC, written in the time zone of the server."],
     ], "«TAB» — The tab bar of a remote session") + \
     p("The help window (" + key("F1") + ") says <code>Help — server</code> in its title.")
 
@@ -65,7 +65,7 @@ S_LOST = p("Networks fail. When the link to the server drops, ngtop does not qui
       "When the server answers, the message disappears and the data flow again.") + \
     warn("The automatic reconnection runs in the background, where ssh <b>cannot ask questions</b> (it runs in batch mode). So it works only if ssh "
          "can log in <b>by itself</b>: with a <b>key without passphrase</b> or with a key loaded in an <b>ssh agent</b>. If the server needs a password every "
-         "time, the first connection works, because you type the password, but after a drop the reconnection fails and ngtop stays offline: quit with " +
+         "time, the first connection works, because you type the password, but after a drop the reconnection is refused with <code>Permission denied</code>, ngtop gives up (<code>connection failed</code>) and stops trying: quit with " +
          key("q") + " and start it again.", "Passwords and reconnection.") + \
     p("Some failures are final. If an automatic reconnection is refused with <code>Permission denied</code>, <code>Host key verification failed</code> or "
       "<code>REMOTE HOST IDENTIFICATION HAS CHANGED</code>, trying again would be useless: ngtop stops and the last line says in red "
@@ -86,7 +86,7 @@ S_SERVICES = p("The " + ui("Services") + " section works on a remote machine too
                "and reads their answers. The server must therefore use systemd.", lead=True) + \
     ul(["The list, the details, the boot time and the sessions look as in the local case (" + rif("The Services screen") + ").",
         "The <b>journal</b> is read with the rights of the <b>user you log in as</b>. If that user is not in the group <code>systemd-journal</code>, "
-        "the panel is empty (" + rif("The journal") + "). Log in as a user who can read it, or as root.",
+        "the panel is empty or says <code>The journal of this unit needs more permissions (run ngtop as root, or add the user to the systemd-journal group)</code> (" + rif("The journal") + "). Log in as a user who can read it, or as root.",
         "Starting, stopping and enabling are not available (see above), and neither are the units of the user."])
 
 S_SLOW = p("On a slow link a full update can take longer than the refresh interval. ngtop does not pile up requests: if three updates in a row are "
@@ -113,7 +113,7 @@ CPU: Intel(R) Xeon(R) Silver 4210 (20 logical, 10 physical)
 
 S_SSHCMD = p("By default ngtop runs the command <code>ssh</code>. The variable " + c("NGTOP_SSH") + " tells it to run another command, with its own "
              "arguments. This is how you use another configuration file, a special key, or a wrapper.", lead=True) + \
-    term("""$ NGTOP_SSH="ssh -F ~/.ssh/other_config" ngtop alex@server
+    term("""$ NGTOP_SSH="ssh -F $HOME/.ssh/other_config" ngtop alex@server
 $ NGTOP_SSH="ssh -i ~/.ssh/monitor_key" ngtop server""") + \
     ul(["The value is split at the spaces. A path that contains a space cannot be used directly: put the options in <code>~/.ssh/config</code> instead.",
         "ngtop adds its own options after yours (<code>-T</code>, the keep-alive, <code>-C</code>, the port if the target has one), then the target.",

@@ -712,28 +712,42 @@ fn nome_di_file_ostile_non_falsifica_i_link_fd() {
 
 #[test]
 fn mount_di_rete_mai_nel_lotto_h() {
-    let (src, _) = connect_local_sh().unwrap();
-    super::source::test_support::set_net_for_test(&src, b"/tmp");
-    for _ in 0..6 {
-        src.begin_refresh();
-        let _ = src.statvfs(Path::new("/tmp"));
-        assert!(src.statvfs(Path::new("/")).is_ok());
+    // il "server" dichiara /tmp come nfs4 tramite /proc/mounts e /proc/self/mountinfo (finti, ma percorsi veri)
+    for (mounts, mountinfo, legge_mountinfo) in [
+        (Some(&b"srv:/x /tmp nfs4 rw 0 0\n"[..]), None, false),
+        (
+            None,
+            Some(&b"36 35 0:30 / /tmp rw - nfs4 srv:/x rw\n"[..]),
+            true,
+        ),
+    ] {
+        let (src, _) = connect_local_sh().unwrap();
+        super::source::test_support::set_fake_mounts_for_test(&src, mounts, mountinfo);
+        for _ in 0..6 {
+            src.begin_refresh();
+            if legge_mountinfo {
+                // come il raccoglitore dei dischi: legge mountinfo a ogni giro
+                let _ = src.read(Path::new("/proc/self/mountinfo"));
+            }
+            let _ = src.statvfs(Path::new("/tmp"));
+            assert!(src.statvfs(Path::new("/")).is_ok());
+        }
+        let sent =
+            String::from_utf8_lossy(&super::source::test_support::sent_for_test(&src)).into_owned();
+        let h: Vec<&str> = sent
+            .lines()
+            .filter(|l| l.starts_with("H ") || l.starts_with("s "))
+            .collect();
+        assert!(!h.is_empty(), "il lotto H non è mai stato usato");
+        assert!(
+            h.iter().all(|l| !l.contains("'/tmp'")),
+            "/tmp nel lotto H: {h:?}"
+        );
+        assert!(
+            sent.lines().any(|l| l.starts_with("h '/tmp'")),
+            "nessuna lettura con scadenza"
+        );
     }
-    let sent =
-        String::from_utf8_lossy(&super::source::test_support::sent_for_test(&src)).into_owned();
-    let h: Vec<&str> = sent
-        .lines()
-        .filter(|l| l.starts_with("H ") || l.starts_with("s "))
-        .collect();
-    assert!(!h.is_empty(), "il lotto H non è mai stato usato");
-    assert!(
-        h.iter().all(|l| !l.contains("'/tmp'")),
-        "/tmp nel lotto H: {h:?}"
-    );
-    assert!(
-        sent.lines().any(|l| l.starts_with("h '/tmp'")),
-        "nessuna lettura con scadenza"
-    );
 }
 
 #[test]

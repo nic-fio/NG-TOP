@@ -54,6 +54,12 @@ fn connect_remote(target: &str) -> Roots {
     match ngtop::remote::connect(&t, &ConnectOptions::default()) {
         Ok((src, run)) => Roots::remote(src, run),
         Err(e) => {
+            // l'errore contiene l'ultima riga di stderr di ssh, che può venire dal server
+            let e: String = e
+                .to_string()
+                .chars()
+                .map(|c| if c.is_control() { '?' } else { c })
+                .collect();
             eprintln!("ngtop: cannot connect to {}: {e}", t.display());
             std::process::exit(2);
         }

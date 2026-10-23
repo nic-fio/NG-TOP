@@ -90,7 +90,6 @@ fn net_mounts(cache: &Cache) -> HashSet<Vec<u8>> {
             }
         }
     }
-    set.extend(cache.net_extra.iter().cloned());
     set
 }
 
@@ -191,8 +190,12 @@ struct Cache {
     net_skip: HashMap<Vec<u8>, u32>,
     /// Mount di rete noti: ricordati tra i giri anche se i file da cui derivano escono dalla cache.
     net: HashSet<Vec<u8>>,
-    /// Solo per i test: mount da trattare come di rete.
-    net_extra: HashSet<Vec<u8>>,
+    /// Solo per i test: contenuto finto di /proc/mounts e /proc/self/mountinfo, inserito nella cache al posto
+    /// della risposta del server quando il file è nel manifesto (simula un server con un mount NFS).
+    #[cfg(test)]
+    fake_mounts: Option<Vec<u8>>,
+    #[cfg(test)]
+    fake_mountinfo: Option<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -830,8 +833,20 @@ impl RemoteSource {
                     // mai panic su numeri del server: somma e fette controllate
                     let total = list.iter().try_fold(0usize, |t, x| t.checked_add(x.0));
                     // la seconda misura può avere SOLO righe in meno (processi spariti dopo il cat)
-                    let b_lines: HashSet<&[u8]> = r.body.split(|&b| b == b'\n').collect();
-                    let q_subset = q.body.split(|&b| b == b'\n').all(|l| b_lines.contains(l));
+                    // (la riga finale "N total" di wc cambia se un processo sparisce: si confrontano solo le righe-percorso)
+                    let path_lines = |b: &'_ [u8]| -> Vec<Vec<u8>> {
+                        b.split(|&x| x == b'\n')
+                            .filter(|l| {
+                                let t = l.trim_ascii_start();
+                                t.iter()
+                                    .position(|&x| x == b' ')
+                                    .is_some_and(|i| t[i..].trim_ascii_start().starts_with(b"/"))
+                            })
+                            .map(|l| l.trim_ascii_start().to_vec())
+                            .collect()
+                    };
+                    let b_lines: HashSet<Vec<u8>> = path_lines(&r.body).into_iter().collect();
+                    let q_subset = path_lines(&q.body).iter().all(|l| b_lines.contains(l));
                     if !q_subset || total != Some(c.body.len()) {
                         redo_files.push(r.arg);
                         continue;
@@ -966,6 +981,19 @@ impl RemoteSource {
             .map(|(k, _)| k.clone())
             .collect();
         let (mut redo_files, redo_links, redo_dirs) = Self::absorb(&mut c, recs);
+        #[cfg(test)]
+        for (path, fake) in [
+            (&b"/proc/mounts"[..], c.fake_mounts.clone()),
+            (&b"/proc/self/mountinfo"[..], c.fake_mountinfo.clone()),
+        ] {
+            if let Some(b) = fake
+                && items
+                    .iter()
+                    .any(|((k, p), _)| *k == Kind::File && p == path)
+            {
+                c.entries.insert((Kind::File, path.to_vec()), (0, b));
+            }
+        }
         let known = net_mounts(&c);
         if !known.is_empty()
             || c.entries
@@ -1359,8 +1387,14 @@ pub(super) mod test_support {
         lock(&src.sh.sent).clone()
     }
 
-    pub fn set_net_for_test(src: &RemoteSource, p: &[u8]) {
-        lock(&src.cache).net_extra.insert(p.to_vec());
+    pub fn set_fake_mounts_for_test(
+        src: &RemoteSource,
+        mounts: Option<&[u8]>,
+        mountinfo: Option<&[u8]>,
+    ) {
+        let mut c = lock(&src.cache);
+        c.fake_mounts = mounts.map(<[u8]>::to_vec);
+        c.fake_mountinfo = mountinfo.map(<[u8]>::to_vec);
     }
 
     pub fn mountinfo_net_for_test(mountinfo: &[u8]) -> HashSet<Vec<u8>> {
