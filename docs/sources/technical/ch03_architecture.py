@@ -62,14 +62,16 @@ S1 = p("ngtop has two halves. The <b>collectors</b> (" + c("src/collect/") + ") 
       "refresh, " + c("App::update()") + " pushes the new values into the histories (600 samples each, "
       + c("HISTORY_LEN") + ") and rebuilds the process list.") + \
     note("Because the collectors depend on nothing but " + c("Roots") + ", the same code runs on the real machine, on a "
-         "fake tree in a test, and behind " + c("ngtop --snapshot") + " when a screenshot is made for these manuals "
-         "(" + rif("Testing") + ").", "Why the split.")
+         "fake tree in a test, behind " + c("ngtop --snapshot") + " when a screenshot is made for these manuals "
+         "(" + rif("Testing") + "), and on another machine through ssh (" + rif("Sources and runners") + "). " + c("Roots") + " carries two handles besides the folders: "
+         + c("src") + ", through which every file is read, and " + c("run") + ", through which every external command is run.", "Why the split.")
 
 S2 = p(c("System::refresh()") + " measures the time since the previous call with the real clock and passes it to "
        + c("refresh_with_dt(dt)") + ". Tests call " + c("refresh_with_dt") + " directly with a chosen " + c("dt")
        + ", so rates do not depend on how fast the test runs. With " + c("dt <= 0") + " (the first sample) every "
        "rate is zero.", lead=True) + \
     table(["Order", "Step", "Function", "How often"], [
+        ["0", "Tell the source a refresh begins", c("begin_refresh()"), "every cycle; local: nothing. Remote: all the files the collectors will read are fetched here in one round trip (" + rif("RemoteSource: manifest and bulk reads") + ")"],
         ["1", "CPU times and per-core frequency", c("refresh_cpu()"), "every cycle"],
         ["2", "Memory, load average, uptime", c("read_meminfo()") + ", " + c("read_loadavg()") + ", "
          + c("read_uptime()"), "every cycle"],
@@ -123,6 +125,8 @@ S4 = p("ngtop starts three kinds of thread, and none of them is a pool: each exi
         [c("ngtop-action"), c("run()") + " in " + c("worker.rs"), "one action",
          "start, stop, restart, enable or disable a unit. At most one at a time; a second one is refused at once",
          "the services answer channel"],
+        ["(ssh helpers)", c("Session::start()"), "remote mode only, for the whole session", "read the ssh process's stdout and stderr, write its stdin", "channels to the session"],
+        ["(reconnection)", c("lost()"), "remote mode only, until the connection is back", "tries to start a new session with a growing wait (" + rif("Reconnection and the interval") + ")", "a shared state"],
         [c("ngtop-unitfiles"), c("unit_file_states()"), "one refresh",
          "reads the list of unit files (a slow D-Bus call) and stores it in a cache", "a shared cache"],
     ], "«TAB» — Threads") + \

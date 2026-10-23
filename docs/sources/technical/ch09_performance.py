@@ -6,7 +6,7 @@ S1 = p("A monitor that uses a lot of CPU gives the wrong picture of the machine 
     table(["Measure", "Value", "How it was measured"], [
         ["CPU at 1 s refresh", "about 1 %", "Intel N100, default interval. One cycle takes 8 to 11 ms (measured with " + c("ngtop --bench") + "), once a second"],
         ["Resident memory", "about 5.6 MB", "Same machine, as reported on the project page"],
-        ["Binary", "about 3.5 MB", c("dist/ngtop") + ", static, stripped"],
+        ["Binary", "about 3.9 MB", c("dist/ngtop") + ", static, stripped"],
         ["Start to first frame", "25 to 30 ms", c("ngtop --bench-start") + ": cold start and the mean of 10 starts, at 182 × 52"],
         ["One cycle", "8 to 11 ms", c("ngtop --bench") + " (below)"],
     ], "«TAB» — The figures") + \

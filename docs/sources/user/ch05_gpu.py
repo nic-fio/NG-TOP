@@ -16,8 +16,10 @@ S_SUPPORT = p("ngtop reads the graphics cards from the kernel, not from a vendor
         ["AMD", c("amdgpu"), "Full: use, memory, clocks, temperature, power, fan, engines, per-process use."],
         ["Intel", c("i915") + ", " + c("xe"), "Full for what the driver reports: use by engine, clocks, memory, per-process use. "
          "Power and some temperatures are often not available."],
-        ["NVIDIA", "any", "<b>Detected only.</b> The card is listed with its name, and the panel says " +
-         ui("support coming soon") + ". Full support is planned."],
+        ["NVIDIA", c("nvidia"), "<b>Detected only.</b> The card is listed with its name, and the panel says " +
+         ui("support coming soon (driver nvidia)") + ". Full support is planned."],
+        ["Any other", "for example " + c("nouveau") + ", " + c("radeon"), "<b>Detected, not supported.</b> The card is listed and the panel says " +
+         ui("not supported (driver nouveau)") + " (with the name of the driver)."],
     ], "«TAB» — Graphics cards and drivers") + \
     note("NVIDIA's own tools read the card through a library of the vendor. A single static file like ngtop cannot load it "
          "cleanly, so NVIDIA needs a different way, which is planned. If you use an NVIDIA card with the proprietary "
@@ -53,8 +55,8 @@ S_SLEEP = p("A discrete card in power saving is <b>asleep</b>. Reading its files
         [ui("suspended — not queried, to avoid waking it"), "The card is in runtime suspend. No numbers are shown."],
         [ui("suspended (D3cold) — not queried, to avoid waking it"), "The card is completely powered off (state D3cold)."],
     ], "«TAB» — Messages of a sleeping card") + \
-    p("As soon as some program wakes the card, ngtop shows its numbers again. In the compact layout the short word " +
-      ui("suspended") + " is written instead.") + \
+    p("As soon as some program wakes the card, ngtop shows its numbers again. In the compact layout a short word is written "
+      "instead: " + ui("suspended") + ", " + ui("coming soon") + " (NVIDIA) or " + ui("not supported") + ".") + \
     p("Integrated cards are different: they switch on and off all the time while the machine works, so there is nothing "
       "to save, and ngtop reads them always. When the card is idle at that moment, the title shows " + ui("idle") + ".") + \
     tip("Do you see a card suspended while you expect it to work? That is the proof that ngtop is leaving it alone. Start "

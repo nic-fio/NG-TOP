@@ -125,8 +125,8 @@ S3 = p("All widgets are in " + c("src/ui/widgets/") + ". Each takes the data to 
          "each block takes the gradient colour of its own value. Right-aligned; missing values are blank"],
         [c("ProcTable"), "columns, visible rows, selection, sort", "A header (dim; the sort column bold with ▼ for descending or ▲ for ascending), then the rows. "
          "Cells are ratatui " + c("Line") + " values so a cell can have several colours"],
-        [c("TabBar"), "tab names, active index, right text", "“ngtop 1.0 │” then the five tabs as “ 1 Overview ”, and at the right the host, uptime, load, "
-         "interval and clock if there is room. " + c("tab_ranges()") + " gives the click areas"],
+        [c("TabBar"), "tab names, active index, right text", "“ngtop 1.5 │” then the five tabs as “ 1 Overview ”, and at the right the host, uptime, load, "
+         "interval and clock if there is room. In remote mode a lead text “⇄ host” and the coloured latency are kept even when the rest does not fit, and the tabs leave room for them (" + c("tabs_end()") + "). " + c("tab_ranges()") + " gives the click areas"],
         [c("KeyBar"), "pairs (key, label)", "htop-style bar: the key on a cyan background, the label on a dark one. Items that do not fit are left out whole; the last one (q Quit) is kept when possible"],
         [c("Dialog"), "title, lines, buttons, selected", "A centred red-bordered window; it clears its background first. "
          "Width is the longest line (at least 30) plus 4; height is the lines plus 4"],

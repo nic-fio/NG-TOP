@@ -163,6 +163,28 @@ t_stopped() { # nome
   echo OK
 }
 
+# Chiave tolta mentre ngtop e' collegato + sessione ssh uccisa: deve passare a "connection failed"
+# (errore definitivo) senza riprovare all'infinito, e uscire con q.
+t_authfail() { # nome
+  local n="$1" log="$LOGDIR/$n-authfail.log"
+  ( (sleep 14; printf q; sleep 3) | script -qc "stty cols 120 rows 40; timeout --foreground -s TERM 20 $BIN ct-$n; echo EXIT=\$?" /dev/null >"$log" 2>&1 ) &
+  local bg=$!
+  sleep 5
+  podman exec "${CID[$n]}" sh -c 'rm -f /home/tester/.ssh/authorized_keys
+    for p in /proc/[0-9]*; do tr "\0" " " <$p/cmdline 2>/dev/null | grep -q "sshd: tester" && kill ${p#/proc/}; done; true' >/dev/null 2>&1
+  wait $bg
+  # ripristina la chiave per le prove successive
+  podman exec "${CID[$n]}" sh -c 'cp /tmp/authorized_keys.src /home/tester/.ssh/authorized_keys && chown tester /home/tester/.ssh/authorized_keys && chmod 600 /home/tester/.ssh/authorized_keys' >/dev/null 2>&1
+  local clean; clean="$(sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$log")"
+  nopanic "$log" || { echo "ERROR: panic"; return; }
+  echo "$clean" | grep -aqi 'connection failed' || { echo "ERROR: no 'connection failed' state"; return; }
+  echo "$clean" | grep -aqi 'press q' || { echo "ERROR: no 'press q' hint"; return; }
+  grep -aq $'\e\[?1049l' "$log" || { echo "ERROR: terminal not restored"; return; }
+  grep -aEq 'EXIT=(0|124|143)' "$log" || { echo "ERROR: exit $(grep -ao 'EXIT=[0-9]*' "$log" | head -1)"; return; }
+  grep -aq 'EXIT=0' "$log" || { echo "ERROR: did not exit on q (EXIT=124, still running)"; return; }
+  echo OK
+}
+
 # ---- misure -------------------------------------------------------------------------------
 ticks() { # pid... somma utime+stime(+figli) in tick, da /proc locale
   local p s=0 f
@@ -229,14 +251,16 @@ fi
 declare -A STOP
 UNREACH="$(t_unreachable)"
 for n in "${READY[@]}"; do RESULT[$n]="$(functional "$n")"; done
+declare -A AUTH
+for n in "${READY[@]}"; do [ "$n" = debian ] && AUTH[$n]="$(t_authfail "$n")"; done
 for n in "${READY[@]}"; do STOP[$n]="$(t_stopped "$n")"; done
 
 echo
-printf '%-10s %-9s %s\n' CONTAINER FUNCTIONAL "STOPPED-DURING-RUN"
+printf '%-10s %-9s %s\n' CONTAINER FUNCTIONAL "STOPPED-DURING-RUN | AUTH-FAILURE"
 rc=0
 for n in "${ORDER[@]}"; do
-  printf '%-10s %s | %s\n' "$n" "${RESULT[$n]}" "${STOP[$n]:--}"
-  [[ "${RESULT[$n]}" == OK && "${STOP[$n]:-OK}" == OK ]] || rc=1
+  printf '%-10s %s | %s | %s\n' "$n" "${RESULT[$n]}" "${STOP[$n]:--}" "${AUTH[$n]:--}"
+  [[ "${RESULT[$n]}" == OK && "${STOP[$n]:-OK}" == OK && "${AUTH[$n]:-OK}" == OK ]] || rc=1
 done
 printf '%-10s %s\n' unreachable "$UNREACH"
 [ "$UNREACH" = OK ] || rc=1

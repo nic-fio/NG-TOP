@@ -13,14 +13,14 @@ S1 = p("ngtop is meant to be copied to a server, a container or an old workstati
 	statically linked
 $ bash build.sh
 ...
-OK: dist/ngtop is static (3.5M)""", "The check")
+OK: dist/ngtop is static (3.9M)""", "The check")
 
 S2 = p("The seven direct dependencies are all Rust. Each does one job.", lead=True) + \
     table(["Crate", "Version", "Used for", "Where"], [
         [c("ratatui"), "0.30", "Buffer, layout and test backend for the interface", c("src/ui/")],
         [c("crossterm"), "0.29", "Raw mode, alternate screen, keys, mouse, terminal size", c("src/ui/mod.rs")],
         [c("rustix"), "1.1", "System calls without a C library: " + c("pidfd_open") + ", " + c("pidfd_send_signal") + ", " + c("setpriority") + ", " + c("statvfs") + ", " + c("geteuid") + ", clock ticks, page size. On Linux x86_64 it issues the raw system calls itself",
-         c("process.rs") + ", " + c("disk.rs") + ", " + c("processi.rs")],
+         c("src/source/mod.rs") + ", " + c("src/collect/mod.rs") + ", " + c("processi.rs")],
         [c("zbus"), "5", "D-Bus in pure Rust, with the blocking API: systemd and login1", c("services/dbus.rs")],
         [c("serde_json"), "1.0", "Reads " + c("journalctl -o json") + " lines", c("services/mod.rs")],
         [c("signal-hook"), "0.3", "Sets flags on SIGTERM, SIGINT, SIGHUP without unsafe code in ngtop", c("src/ui/mod.rs")],
@@ -45,7 +45,7 @@ S3 = p("The default Linux toolchain links against glibc, and a program built tha
         [c("cp target/…/ngtop dist/ngtop"), "The finished file is " + c("dist/ngtop")],
         [c("ldd dist/ngtop | grep -qE \"not a dynamic executable|statically linked\""), "The verification; on failure, the dependencies are printed and the exit status is 1"],
     ], "«TAB» — build.sh, line by line") + \
-    p("The result is about 3.5 MB: " + c("opt-level = 3") + ", " + c("lto = \"fat\"") + ", " + c("codegen-units = 1") + " and " + c("strip = true") + " (no debugging symbols).")
+    p("The result is about 3.9 MB: " + c("opt-level = 3") + ", " + c("lto = \"fat\"") + ", " + c("codegen-units = 1") + " and " + c("strip = true") + " (no debugging symbols).")
 
 S4 = p("Static linking with musl removes some conveniences a dynamic program takes for granted. ngtop works around each of them in its own code.", lead=True) + \
     table(["Missing", "Consequence", "What ngtop does"], [

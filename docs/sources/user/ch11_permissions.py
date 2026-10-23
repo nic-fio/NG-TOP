@@ -53,6 +53,11 @@ S_ROOT = p("To see everything, run ngtop as root:", lead=True) + \
         "Some systems mount <code>/proc</code> so that users see only their own processes. On those, a normal user sees an almost empty "
         "list, and root sees everything."])
 
+S_REMOTE = p("On a <b>remote machine</b> (" + rif("Monitoring another machine") + ") the rules are the same, but they apply to the <b>user you log in "
+             "as on the server</b>, not to you on your PC. If you log in as a normal user, you see the dashes of the table above for the other users' processes. "
+             "To see everything, log in as root: " + c("ngtop root@server") + " (if the server allows it). The journal of the server needs the group "
+             "<code>systemd-journal</code>, or root.", lead=True)
+
 S_SAFE = p("Is it safe to leave ngtop open as root? ngtop only reads files and, when you ask, sends a signal, changes a nice value, or "
            "asks systemd for an action. It does not open network ports, does not write anything outside the configuration file "
            "(only with " + key("W") + "), and does not run other programs, except <code>journalctl</code> and "
@@ -63,5 +68,6 @@ CHAPTER = ("Permissions and running as root", [
     ("What you see without administrator rights", S_DASH),
     ("What a normal user can do", S_ACT),
     ("Running as root", S_ROOT),
+    ("Permissions on a remote machine", S_REMOTE),
     ("What ngtop does on your system", S_SAFE),
 ])

@@ -1,5 +1,7 @@
 # ngtop documentation
 
+The manuals cover ngtop 1.5, including remote machines over ssh.
+
 GitHub shows `.html` files as source code: it does not display web pages stored
 in a repository. Read the manuals in one of these two ways.
 

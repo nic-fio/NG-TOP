@@ -44,7 +44,8 @@ S_INTERACTIVE = p("<b>\"ngtop: an interactive terminal is required\".</b> ngtop 
 S_GPU = p("<b>The GPU is not shown, or shows no numbers.</b>", lead=True) + \
     table(["What you see", "Reason"], [
         [ui("No GPU detected"), "The kernel lists no graphics card: a virtual machine without GPU, a container, or a missing driver."],
-        [ui("support coming soon (driver nvidia)"), "NVIDIA cards, and any card with a driver other than <code>amdgpu</code>, <code>i915</code> or <code>xe</code> (nouveau, radeon…), are only detected. See " + rif("Supported cards") + "."],
+        [ui("support coming soon (driver nvidia)"), "NVIDIA cards are only detected: full support is planned. See " + rif("Supported cards") + "."],
+        [ui("not supported (driver nouveau)"), "A card whose driver is not <code>amdgpu</code>, <code>i915</code> or <code>xe</code> and not NVIDIA's (nouveau, radeon…) is listed but not read. The name of the driver is in the message."],
         [ui("suspended — not queried, to avoid waking it"), "A discrete card is asleep, and ngtop leaves it asleep on purpose (" + rif("Sleeping cards") + ")."],
         ["The card works but the table of processes is empty", "The processes using it belong to other users, and their GPU statistics are private. Run ngtop as root (" + rif("What you see without administrator rights") + ")."],
         ["Power or temperature are missing", "The driver does not report them. Intel cards often do not report power."],
@@ -91,6 +92,31 @@ S_NUMBERS = p("<b>The numbers differ from another tool.</b> The definitions are 
         "<b>Used</b> memory is the total minus the available memory; the file cache is not counted as used.",
         "Graphs and peaks start when ngtop starts; the totals of a network interface count since it was created, until you press " + key("z") + "."])
 
+S_RCONNECT = p("<b>\"cannot connect\" to a remote machine.</b> ngtop prints the reason that ssh gave and exits with code 2:", lead=True) + \
+    term("""ngtop: cannot connect to alex@server: ssh: connect to host server port 22: Connection refused""") + \
+    ul(["First check that the plain command works: " + c("ssh alex@server") + ". If it does not, the problem is in ssh, not in ngtop.",
+        "The target is not valid: <code>ngtop: invalid TARGET '…'</code>. A port goes only in the URL form: " + c("ssh://alex@server:2222") + ".",
+        "The server needs a shell with <code>cat</code> and must be Linux. A router or a non-Linux system cannot be monitored.",
+        "If you use " + c("NGTOP_SSH") + ", check it: it replaces the whole ssh command (" + rif("Choosing the ssh command") + ")."])
+
+S_RHOSTKEY = p("<b>Host key and password prompts.</b> They appear on the terminal <b>before</b> the interface. Answer them as you do with ssh. "
+               "If ssh says that the host key has changed, it refuses to continue: ngtop exits with " + ui("cannot connect") + ". Check why the "
+               "server changed before you remove the old key from <code>known_hosts</code>.", lead=True)
+
+S_RRECONNECT = p("<b>ngtop stays offline after a drop, or asks for the password at every reconnection.</b> It cannot ask: the reconnection runs "
+                 "without a terminal. It works only with a key without passphrase or with an ssh agent. Load your key with <code>ssh-add</code>, "
+                 "or quit and start ngtop again (" + rif("Lost connection and reconnection") + ").", lead=True)
+
+S_RJOURNAL = p("<b>The journal of a remote server is empty.</b> It is read with the rights of the user you log in as. Use a user of the group "
+               "<code>systemd-journal</code>, or root (" + rif("Services on a remote machine") + ").", lead=True)
+
+S_RSLOW = p("<b>The data of a remote machine arrive slowly.</b> Look at the latency in the tab bar: red means more than 200 ms. If updates take longer than "
+            "the interval, ngtop widens it by itself and says so on the status line (" + rif("Slow networks") + "). On a very slow link a longer "
+            "interval, with " + key("+") + ", is the right setting.", lead=True)
+
+S_RNO = p("<b>Signals, nice and service actions do nothing on a remote machine.</b> That is expected in this version: the status line says " +
+          ui("Not available on remote machines in this version") + " (" + rif("What does not work remotely") + ").", lead=True)
+
 CHAPTER = ("Troubleshooting", [
     ("The terminal is too small", S_SMALL),
     ("Colours look wrong", S_COLOURS),
@@ -104,4 +130,10 @@ CHAPTER = ("Troubleshooting", [
     ("Wrong time", S_TIME),
     ("High CPU use", S_CPU),
     ("Numbers that differ from other tools", S_NUMBERS),
+    ("Remote: cannot connect", S_RCONNECT),
+    ("Remote: host key and passwords", S_RHOSTKEY),
+    ("Remote: offline after a drop", S_RRECONNECT),
+    ("Remote: the journal is empty", S_RJOURNAL),
+    ("Remote: data arrive slowly", S_RSLOW),
+    ("Remote: actions do nothing", S_RNO),
 ])

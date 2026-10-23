@@ -4,7 +4,7 @@ COLLECTOR = '''//! Open file handles of the whole system, from /proc/sys/fs/file
 
 use std::path::Path;
 
-use super::read_text;
+use crate::source::Source;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileNr {
@@ -27,8 +27,10 @@ pub fn parse_file_nr(text: &str) -> FileNr {
     }
 }
 
-pub fn read_file_nr(path: &Path) -> FileNr {
-    read_text(path).map(|t| parse_file_nr(&t)).unwrap_or_default()
+pub fn read_file_nr(src: &dyn Source, path: &Path) -> FileNr {
+    src.read_text(path)
+        .map(|t| parse_file_nr(&t))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -55,7 +57,8 @@ pub struct System {
     files: filenr::FileNr::default(),            // 3. its initial value
 
 // in System::refresh_with_dt():
-    self.files = filenr::read_file_nr(           // 4. read it, through the roots
+    self.files = filenr::read_file_nr(           // 4. read it, through the source
+        &*self.roots.src,
         &self.roots.proc.join("sys/fs/file-nr"),
     );'''
 
@@ -63,7 +66,7 @@ S1 = p("This tutorial adds a small collector from start to finish: the number of
        + c("/proc/sys/fs/file-nr") + ". The pattern is the one of every collector in " + c("src/collect/") + ".", lead=True) + \
     steps([
         "<b>Write the module</b> " + sysf("src/collect/filenr.rs") + ". A data struct; a " + c("parse_*()") + " that takes <i>text</i> and never panics; a " + c("read_*()") + " that takes a "
-        "<i>path</i> and uses " + c("read_text()") + ". Put the test in the same file. Start the file with the two licence lines used everywhere (" + rif("Conventions") + ")." + code(COLLECTOR, "rust", "src/collect/filenr.rs"),
+        "<i>source and a path</i> and uses " + c("Source::read_text()") + ". <b>Never touch the file system yourself</b>: no " + c("std::fs") + ", no " + c("File::open") + ". The test " + c("nessuna_lettura_diretta_fuori_da_source") + " fails if you do, and a direct read would show nothing on a remote machine. Put the test in the same file. Start the file with the two licence lines used everywhere (" + rif("Conventions") + ")." + code(COLLECTOR, "rust", "src/collect/filenr.rs"),
         "<b>Connect it to System.</b> Four lines in " + c("src/collect/mod.rs") + ". Always build the path from " + c("self.roots") + ", never write " + c("/proc") + " in the collector." + code(WIRING, "rust", "src/collect/mod.rs"),
         "<b>Decide how often.</b> One small file can be read every cycle. A costly one should be read every 5th cycle, like routes (" + c("refresh_count.is_multiple_of(5)") + "), or only when "
         "a section is visible, like connections (a " + c("collect_*") + " flag, set in " + c("event_loop()") + ", " + c("snapshot()") + " and " + c("bench()") + "). See " + rif("Caches and schedules") + ".",

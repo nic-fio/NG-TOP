@@ -139,9 +139,15 @@ fn write_stdout(s: &str) {
     let _ = o.flush();
 }
 
+// I testi del riepilogo vengono anche da una macchina remota (nomi di processo, righe di comando):
+// i caratteri di controllo diventano '?', così nessuna sequenza di escape arriva al terminale.
 macro_rules! outln {
     ($o:expr, $($a:tt)*) => {{
-        let _ = writeln!($o, $($a)*);
+        let line: String = format!($($a)*)
+            .chars()
+            .map(|c| if c.is_control() { '?' } else { c })
+            .collect();
+        let _ = writeln!($o, "{line}");
     }};
 }
 

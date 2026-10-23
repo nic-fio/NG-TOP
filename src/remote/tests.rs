@@ -709,3 +709,37 @@ fn nome_di_file_ostile_non_falsifica_i_link_fd() {
         r.read_dir(Path::new("/proc/1/fd")).is_err() || rustix::process::getuid().as_raw() == 0
     );
 }
+
+#[test]
+fn mount_di_rete_mai_nel_lotto_h() {
+    let (src, _) = connect_local_sh().unwrap();
+    super::source::test_support::set_net_for_test(&src, b"/tmp");
+    for _ in 0..6 {
+        src.begin_refresh();
+        let _ = src.statvfs(Path::new("/tmp"));
+        assert!(src.statvfs(Path::new("/")).is_ok());
+    }
+    let sent =
+        String::from_utf8_lossy(&super::source::test_support::sent_for_test(&src)).into_owned();
+    let h: Vec<&str> = sent
+        .lines()
+        .filter(|l| l.starts_with("H ") || l.starts_with("s "))
+        .collect();
+    assert!(!h.is_empty(), "il lotto H non è mai stato usato");
+    assert!(
+        h.iter().all(|l| !l.contains("'/tmp'")),
+        "/tmp nel lotto H: {h:?}"
+    );
+    assert!(
+        sent.lines().any(|l| l.starts_with("h '/tmp'")),
+        "nessuna lettura con scadenza"
+    );
+}
+
+#[test]
+fn mountinfo_riconosce_i_mount_di_rete() {
+    let mi = b"36 35 98:0 /mnt1 /mnt/nfs\\040dir rw,noatime master:1 - nfs4 srv:/x rw\n1 0 8:1 / / rw - ext4 /dev/sda1 rw\n";
+    let mut c = Vec::new();
+    c.extend(super::source::test_support::mountinfo_net_for_test(mi));
+    assert_eq!(c, vec![b"/mnt/nfs dir".to_vec()]);
+}

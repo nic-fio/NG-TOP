@@ -1,4 +1,4 @@
-from build import ROOT, c, code, fig, note, p, rif, table, term, tip
+from build import ROOT, c, code, fig, note, p, rif, sysf, table, term, tip
 
 
 def _count(pattern):
@@ -19,6 +19,7 @@ S1 = p("There are two kinds of test, and a few tools to look at the screen witho
         ["Integration tests", c("tests/*.rs"), str(INTEG) + " test functions",
          "The collectors over a fake tree, and the views drawn from them, through the public library"],
         ["Distribution tests", c("scripts/test-distro.sh"), "8 distributions × 4 cases", "The finished static binary on real systems"],
+        ["Remote end-to-end tests", c("scripts/test-remote.sh"), "3 containers with sshd", "The finished binary monitoring another machine over real ssh (" + rif("Testing remote monitoring") + ")"],
     ], "«TAB» — The kinds of test") + \
     table(["File", "Subject"], [
         [c("tests/collect.rs"), "CPU, memory, load, processes (names with parentheses, tree, a reused pid), network, disks, sensors, on the two snapshots"],
@@ -26,6 +27,8 @@ S1 = p("There are two kinds of test, and a few tools to look at the screen witho
         [c("tests/retedischi.rs"), "Network, disks and connections: collectors, 'off when not visible', drawing at every size, keys"],
         [c("tests/servizi.rs"), "Services with a fake backend: drawing, filters, search, an action with its confirmation, a refusal, no systemd, no blocking"],
         [c("tests/ui.rs"), "The Overview large and compact; every section at 81 sizes; machines with 1 to 128 cores"],
+        [c("tests/remote.rs"), "The remote protocol through a local " + c("sh") + ": the same machine read directly and “remotely” must give the same results"],
+        [c("tests/source_only.rs"), "The collectors read only through " + c("Source") + " (" + rif("Sources and runners") + ")"],
         [c("tests/cli.rs"), "The program as a process: it refuses to start without a terminal (exit 2); " + c("--help") + " and " + c("--version") + " work without one"],
     ], "«TAB» — The integration test files")
 
@@ -85,6 +88,10 @@ S4 = p("Most of ngtop's safety is a promise about <i>when</i> something happens.
         ["No terminal, no interface", c("senza_terminale_non_apre_la_tui") + " (" + c("tests/cli.rs") + ")"],
         ["Hostile time zone data", c("nessun_panic_su_prefissi_e_file_troncati") + ", " + c("tzif_inventato_e_rotto") + " (" + c("tz.rs") + ")"],
         ["Stuck mounts do not stop the others", c("statvfs_in_thread_non_blocca_e_segnala_non_risponde") + " (" + c("disk.rs") + "): a fake probe that blocks"],
+        ["Collectors never read the disk directly", c("nessuna_lettura_diretta_fuori_da_source") + " (" + c("tests/source_only.rs") + ")"],
+        ["Remote and local give the same numbers", c("remote_local_sh_matches_local_on_real_machine") + ", " + c("remote_local_sh_matches_local_on_fixture") + " (" + c("tests/remote.rs") + ")"],
+        ["Remote actions stay disabled", c("azioni_disattivate_in_remoto") + " (" + c("app.rs") + ")"],
+        ["A slow link widens the interval, a single slow update does not", c("intervallo_si_allarga_in_remoto") + " (" + c("app.rs") + ")"],
         ["A real signal works", c("segnale_reale_a_un_figlio") + " starts a child process, signals it through the whole path and checks it died"],
     ], "«TAB» — Promises and the tests that guard them")
 
@@ -112,9 +119,23 @@ S6 = table(["Command", "When"], [
     [c("cargo clippy --all-targets -- -D warnings"), "The linter; warnings are errors"],
     [c("cargo fmt"), "Formatting"],
     [c("build.sh") + " then " + c("scripts/test-distro.sh"), "Before a release, or after a change that touches system calls, files or the terminal"],
+    [c("scripts/test-remote.sh"), "After a change in " + c("src/remote/") + ", " + sysf("agent.sh") + " or the remote services backend"],
     [c("ngtop --bench"), "After a change in a collector or in drawing (" + rif("Performance") + ")"],
     [c("python3 docs/sources/build.py --check"), "After a change in code that the manuals describe: it verifies the cited functions and files and that the numbers are up to date"],
 ], "«TAB» — What to run, and when")
+
+S7 = p("Remote monitoring is tested at three levels, from cheap to realistic.", lead=True) + \
+    table(["Level", "How", "What it proves"], [
+        ["Protocol, no network", c("src/remote/tests.rs") + " (unit) and " + c("tests/remote.rs") + " run the real agent through a local " + c("sh") + " instead of ssh: " + c("NGTOP_SSH=local-sh") + " (or " + c("connect_local_sh()") + "). No sshd, no container",
+         "Quoting, records, the manifest, the bulk loaders, hostile input, the double measure, reconnection after the session is killed; and that a remote read gives the same results as a direct read"],
+        ["Interface, no network", "A fake " + c("Source") + " with a given " + c("RemoteStatus") + " in " + c("view.rs") + " tests; " + c("App") + " tests in " + c("app.rs"), "The tab bar, the reconnecting and failed lines, disabled actions, the widening interval"],
+        ["Real ssh, containers", c("scripts/test-remote.sh") + " builds three images from " + c("tests/fixtures/remote/Containerfile.*") + " (Alpine with busybox, Debian, Debian with systemd), starts them with rootless podman, "
+         "and runs " + c("ngtop") + " against each over real ssh", "Busybox and GNU tools, the fallbacks, Services on a real systemd, reconnection, a login that is refused"],
+    ], "«TAB» — The three levels of remote testing") + \
+    p("<b>The script</b> creates a throwaway ed25519 key and an " + c("ssh_config") + " in a temporary folder and sets " + c("NGTOP_SSH") + " to use it, so your " + sysf("~/.ssh") + " is never read or changed. Options: " + c("NGTOP_BIN") + " (the binary, default "
+      + c("dist/ngtop") + "), " + c("CONTAINERS") + " (default “alpine debian systemd”), " + c("MEASURE_SECS") + " (30). Logs go to the folder given as argument (default " + c("/tmp/ngtop-remote-logs") + "). Without options it prints a table of OK and ERROR. "
+      "With " + c("--measure") + " (or " + c("scripts/measure-remote.sh") + ") it measures bytes per update, latency, the CPU of ngtop and the CPU of the server at a 1 s interval, 30 s per container: the figures of " + rif("Remote measurements") + ".") + \
+    tip("Run " + c("build.sh") + " first: like " + c("test-distro.sh") + ", the script tests the binary in " + c("dist/") + ".", "Order.")
 
 CHAPTER = ("Testing", [
     ("Kinds of test", S1),
@@ -122,5 +143,6 @@ CHAPTER = ("Testing", [
     ("Seeing the screen: snapshot, dump, sweep", S3),
     ("Tests that guard the promises", S4),
     ("Distributions", S5),
+    ("Testing remote monitoring", S7),
     ("What to run", S6),
 ])

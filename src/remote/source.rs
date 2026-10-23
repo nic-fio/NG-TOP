@@ -45,34 +45,52 @@ fn net_mounts(cache: &Cache) -> HashSet<Vec<u8>> {
         }
         out
     }
+    fn is_net(ty: &str) -> bool {
+        ty.starts_with("nfs")
+            || matches!(
+                ty,
+                "cifs"
+                    | "smb3"
+                    | "smbfs"
+                    | "ncpfs"
+                    | "afs"
+                    | "ceph"
+                    | "glusterfs"
+                    | "9p"
+                    | "lustre"
+                    | "davfs"
+            )
+            || (ty.starts_with("fuse") && ty != "fusectl")
+    }
     let mut set = HashSet::new();
+    // /proc/mounts: "dev mnt tipo opzioni…"
     if let Some((0, body)) = cache.entries.get(&(Kind::File, b"/proc/mounts".to_vec())) {
         for line in body.split(|&b| b == b'\n') {
             let mut f = line.split(|&b| b == b' ');
-            let (_, Some(mnt), Some(ty)) = (f.next(), f.next(), f.next()) else {
-                continue;
-            };
-            let ty = String::from_utf8_lossy(ty);
-            if ty.starts_with("nfs")
-                || matches!(
-                    ty.as_ref(),
-                    "cifs"
-                        | "smb3"
-                        | "smbfs"
-                        | "ncpfs"
-                        | "afs"
-                        | "ceph"
-                        | "glusterfs"
-                        | "9p"
-                        | "lustre"
-                        | "davfs"
-                )
-                || (ty.starts_with("fuse") && ty != "fusectl")
+            if let (_, Some(mnt), Some(ty)) = (f.next(), f.next(), f.next())
+                && is_net(&String::from_utf8_lossy(ty))
             {
                 set.insert(unescape(mnt));
             }
         }
     }
+    // /proc/self/mountinfo (letto a ogni giro dai raccoglitori): "id padre maj:min radice mnt opz… - tipo sorgente …"
+    if let Some((0, body)) = cache
+        .entries
+        .get(&(Kind::File, b"/proc/self/mountinfo".to_vec()))
+    {
+        for line in body.split(|&b| b == b'\n') {
+            let f: Vec<&[u8]> = line.split(|&b| b == b' ').collect();
+            if let Some(d) = f.iter().position(|x| *x == b"-")
+                && d >= 5
+                && let Some(ty) = f.get(d + 1)
+                && is_net(&String::from_utf8_lossy(ty))
+            {
+                set.insert(unescape(f[4]));
+            }
+        }
+    }
+    set.extend(cache.net_extra.iter().cloned());
     set
 }
 
@@ -171,6 +189,10 @@ struct Cache {
     last_seen: HashMap<Key, u32>,
     /// Mount di rete/FUSE che non rispondono: non si interrogano fino a questo giro.
     net_skip: HashMap<Vec<u8>, u32>,
+    /// Mount di rete noti: ricordati tra i giri anche se i file da cui derivano escono dalla cache.
+    net: HashSet<Vec<u8>>,
+    /// Solo per i test: mount da trattare come di rete.
+    net_extra: HashSet<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -189,6 +211,9 @@ struct Shared {
     sess: Mutex<Option<Session>>,
     status: Mutex<StatusInfo>,
     reconnecting: AtomicBool,
+    /// Solo per i test: tutte le righe di richiesta inviate.
+    #[cfg(test)]
+    sent: Mutex<Vec<u8>>,
 }
 
 pub struct RemoteSource {
@@ -217,6 +242,8 @@ pub(super) fn open(
             ..Default::default()
         }),
         reconnecting: AtomicBool::new(false),
+        #[cfg(test)]
+        sent: Mutex::new(Vec::new()),
     });
     let src = Arc::new(RemoteSource {
         sh: sh.clone(),
@@ -249,6 +276,8 @@ impl Shared {
         timeout: Duration,
         wait: Option<Duration>,
     ) -> io::Result<(Vec<Rec>, u64)> {
+        #[cfg(test)]
+        lock(&self.sent).extend_from_slice(lines);
         let mut g = self.lock_sess(wait)?;
         let Some(s) = g.as_mut() else {
             return Err(self.not_connected());
@@ -800,7 +829,10 @@ impl RemoteSource {
                     }
                     // mai panic su numeri del server: somma e fette controllate
                     let total = list.iter().try_fold(0usize, |t, x| t.checked_add(x.0));
-                    if q.body != r.body || total != Some(c.body.len()) {
+                    // la seconda misura può avere SOLO righe in meno (processi spariti dopo il cat)
+                    let b_lines: HashSet<&[u8]> = r.body.split(|&b| b == b'\n').collect();
+                    let q_subset = q.body.split(|&b| b == b'\n').all(|l| b_lines.contains(l));
+                    if !q_subset || total != Some(c.body.len()) {
                         redo_files.push(r.arg);
                         continue;
                     }
@@ -894,7 +926,12 @@ impl RemoteSource {
                     .collect();
                 items.extend(extra.into_iter().map(|k| (k, false)));
             }
-            let net = net_mounts(&c);
+            // /proc/mounts sempre nel manifesto: serve a riconoscere i mount di rete
+            let mk: Key = (Kind::File, b"/proc/mounts".to_vec());
+            if !items.iter().any(|(k, _)| *k == mk) {
+                items.push((mk, false));
+            }
+            let net = c.net.clone();
             items.retain(|((k, p), _)| !(*k == Kind::Stat && net.contains(p)));
             let refetch_sticky = c.laps < 2 || c.laps.is_multiple_of(STICKY_LAPS);
             if !refetch_sticky {
@@ -929,6 +966,13 @@ impl RemoteSource {
             .map(|(k, _)| k.clone())
             .collect();
         let (mut redo_files, redo_links, redo_dirs) = Self::absorb(&mut c, recs);
+        let known = net_mounts(&c);
+        if !known.is_empty()
+            || c.entries
+                .contains_key(&(Kind::File, b"/proc/mounts".to_vec()))
+        {
+            c.net = known;
+        }
         for k in grouped {
             c.entries.entry(k).or_insert((2, Vec::new()));
         }
@@ -1048,7 +1092,7 @@ impl RemoteSource {
         let key: Key = (kind, p.to_vec());
         if kind == Kind::Stat {
             let c = lock(&self.cache);
-            if net_mounts(&c).contains(p) {
+            if c.net.contains(p) || net_mounts(&c).contains(p) {
                 drop(c);
                 return self.statvfs_net(p);
             }
@@ -1309,6 +1353,23 @@ pub(super) mod test_support {
         let (files, _, _) =
             RemoteSource::absorb(&mut cache, vec![mk(b'B', b), mk(b'C', c), mk(b'Q', q)]);
         (cache.entries.len(), files.len())
+    }
+
+    pub fn sent_for_test(src: &RemoteSource) -> Vec<u8> {
+        lock(&src.sh.sent).clone()
+    }
+
+    pub fn set_net_for_test(src: &RemoteSource, p: &[u8]) {
+        lock(&src.cache).net_extra.insert(p.to_vec());
+    }
+
+    pub fn mountinfo_net_for_test(mountinfo: &[u8]) -> HashSet<Vec<u8>> {
+        let mut c = Cache::default();
+        c.entries.insert(
+            (Kind::File, b"/proc/self/mountinfo".to_vec()),
+            (0, mountinfo.to_vec()),
+        );
+        net_mounts(&c)
     }
 
     pub fn mounts_net_for_test(mounts: &[u8]) -> HashSet<Vec<u8>> {

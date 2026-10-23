@@ -42,7 +42,10 @@ colors = "auto"
 # temperature unit: "C" or "F"
 temperature = "C"
 # width of the left column of the Overview, in % (20–70)
-left_width = 40""", "toml", "config.toml — the file ngtop writes when it creates it")
+left_width = 40
+# remote machine to monitor over ssh (like the TARGET argument)
+# host = "user@server"
+""", "toml", "config.toml — the file ngtop writes when it creates it")
 
 S_KEYS = p("These are all the settings. A missing line means the default.", lead=True) + \
     table(["Setting", "Default", "Allowed", "What it does"], [
@@ -52,11 +55,12 @@ S_KEYS = p("These are all the settings. A missing line means the default.", lead
         [c("colors"), c('"auto"'), c('"auto"') + ", " + c('"truecolor"') + ", " + c('"256"'), "How many colours to use. " + c('"auto"') + " decides from the terminal (" + rif("Colours") + "). " + c("--256") + " forces 256."],
         [c("temperature"), c('"C"'), c('"C"') + " or " + c('"F"'), "Degrees Celsius or Fahrenheit, for the CPU and the GPU. Only in the file."],
         [c("left_width"), c("40"), "20–70", "Width of the left column of the Overview, in percent. Only in the file (" + rif("Changing the width of the left column") + ")."],
+        [c("host"), "not set", "a quoted target", "A remote machine to monitor over ssh, written as in " + rif("Monitoring another machine") + ": " + c('host = "alex@server"') + ". Same as giving the target on the command line. " + c("--local") + " ignores it for one run."],
     ], "«TAB» — The settings of the configuration file") + \
     note("Settings that are not here are ignored with a warning (see " + rif("Mistakes in the file") + ").")
 
 S_PRIORITY = p("Three places can say the same thing. ngtop uses them in this order, from the strongest:", lead=True) + \
-    ul(["the <b>command line</b> (" + c("--delay") + ", " + c("--section") + ", " + c("--no-mouse") + ", " + c("--256") + "),",
+    ul(["the <b>command line</b> (" + c("--delay") + ", " + c("--section") + ", " + c("--no-mouse") + ", " + c("--256") + ", " + c("--host") + " or a target, " + c("--local") + "),",
         "the <b>configuration file</b>,",
         "the <b>defaults</b> of the program."]) + \
     p("So " + c("ngtop -d 250") + " beats a file with " + c("interval = 2000") + ". The interval can also be changed while ngtop runs, with " +
@@ -82,6 +86,7 @@ ngtop: configuration /home/alice/.config/ngtop/config.toml: line 3: 'interval' m
         ["A number out of range", c("'section' must be between 1 and 5 (found 9)")],
         ["A text value without quotes", c("invalid value: blu")],
         ["A quoted text where a number is expected", c("'interval' must be a number")],
+        ["A host that is not text, or is not a valid target", c("'host' must be a quoted string") + ", " + c("invalid TARGET 'x': …")],
         ["A number where text or yes/no is expected", c("'colors' must be a quoted string") + ", " + c("'mouse' must be true or false")],
         ["A wrong text value", c("'colors' must be \"auto\", \"truecolor\" or \"256\"")],
         ["A line without equals sign", c("missing '=' (expected key = value)")],
