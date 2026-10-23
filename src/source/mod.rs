@@ -33,6 +33,11 @@ pub struct FsStat {
 pub trait Source: Send + Sync {
     /// Contenuto intero di un file.
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
+    /// Come `read`, ma nel buffer dato (svuotato prima): la sorgente locale lo riusa senza allocare.
+    fn read_into(&self, path: &Path, buf: &mut Vec<u8>) -> io::Result<()> {
+        *buf = self.read(path)?;
+        Ok(())
+    }
     /// Nomi delle voci di una cartella (senza "." e "..").
     fn read_dir(&self, path: &Path) -> io::Result<Vec<OsString>>;
     /// Destinazione di un collegamento simbolico.
@@ -58,6 +63,15 @@ pub trait Source: Send + Sync {
     fn remote_status(&self) -> Option<RemoteStatus> {
         None
     }
+    /// Dimensione della pagina di memoria del sistema osservato, se diversa da quella locale
+    /// (le sorgenti remote la chiedono al server con `getconf PAGESIZE`). `None` = usa quella locale.
+    fn page_size(&self) -> Option<u64> {
+        None
+    }
+    /// Tick al secondo del sistema osservato (`getconf CLK_TCK` sul server). `None` = usa quelli locali.
+    fn clock_ticks(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// La macchina su cui gira ngtop, letta con le chiamate di sistema.
@@ -67,6 +81,11 @@ pub struct LocalSource;
 impl Source for LocalSource {
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(path)
+    }
+    fn read_into(&self, path: &Path, buf: &mut Vec<u8>) -> io::Result<()> {
+        use std::io::Read;
+        buf.clear();
+        std::fs::File::open(path)?.read_to_end(buf).map(|_| ())
     }
     fn read_dir(&self, path: &Path) -> io::Result<Vec<OsString>> {
         std::fs::read_dir(path)?

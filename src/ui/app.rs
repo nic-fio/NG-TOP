@@ -22,7 +22,10 @@ use super::widgets::proctable::{column_at, follow};
 
 pub const HISTORY_LEN: usize = 600;
 /// Messaggio per le azioni disattivate in remoto (stesso testo del backend dei servizi).
-pub const REMOTE_NA: &str = "Not available on remote machines in this version";
+pub const REMOTE_NA: &str = crate::collect::services::remote::REMOTE_ACTION_MSG;
+
+/// Aggiornamenti remoti lenti consecutivi prima di allargare l'intervallo.
+const SLOW_STREAK: u8 = 3;
 
 pub const INTERVALS_MS: [u64; 5] = [250, 500, 1000, 2000, 5000];
 /// Colonne su cui cicla F6 / '<' '>'.
@@ -138,6 +141,8 @@ pub struct App {
     pub hostname: String,
     /// Macchina remota (via ssh): segnali, nice e azioni sui servizi sono disattivati.
     pub remote: bool,
+    /// Aggiornamenti remoti lenti consecutivi (l'intervallo si allarga solo se persistono).
+    slow_streak: u8,
     pub dialog: Option<SignalDialog>,
     /// Processi nell'ordine mostrato.
     pub rows: Vec<Process>,
@@ -197,6 +202,7 @@ impl App {
             should_quit: false,
             hostname,
             remote: false,
+            slow_streak: 0,
             left_pct: 40,
             config: crate::config::Config::default(),
             config_path: None,
@@ -574,9 +580,19 @@ impl App {
     /// In remoto un aggiornamento più lungo dell'intervallo allarga l'intervallo al passo
     /// successivo e lo dice nella riga di stato. `true` se l'intervallo è cambiato.
     pub fn adapt_interval(&mut self, took: std::time::Duration) -> bool {
-        if !self.remote || took.as_millis() <= u128::from(self.interval_ms) {
+        if !self.remote {
             return false;
         }
+        if took.as_millis() <= u128::from(self.interval_ms) {
+            self.slow_streak = 0;
+            return false;
+        }
+        // Un solo campione lento (es. dopo una riconnessione) non basta: ne servono tre di fila.
+        self.slow_streak += 1;
+        if self.slow_streak < SLOW_STREAK {
+            return false;
+        }
+        self.slow_streak = 0;
         let Some(next) = INTERVALS_MS.iter().copied().find(|&v| v > self.interval_ms) else {
             return false;
         };
@@ -836,20 +852,33 @@ mod tests {
         use std::time::Duration;
         let mut a = app();
         let ms = Duration::from_millis;
+        // tre lenti di fila: allarga all'ultimo
+        let slow = |a: &mut App, t: u64| {
+            assert!(!a.adapt_interval(ms(t)));
+            assert!(!a.adapt_interval(ms(t)));
+            a.adapt_interval(ms(t))
+        };
         // locale: mai
         assert!(!a.adapt_interval(ms(3000)));
         a.remote = true;
         a.interval_ms = 250;
         assert!(!a.adapt_interval(ms(250)));
-        assert!(a.adapt_interval(ms(300)));
+        // un campione lento isolato non conta
+        assert!(!a.adapt_interval(ms(900)));
+        assert!(!a.adapt_interval(ms(900)));
+        assert!(!a.adapt_interval(ms(100)));
+        assert_eq!(a.interval_ms, 250);
+        assert!(slow(&mut a, 300));
         assert_eq!(a.interval_ms, 500);
         assert!(a.proc.status_text().unwrap().0.contains("widened to 500ms"));
-        assert!(a.adapt_interval(ms(700)));
-        assert!(a.adapt_interval(ms(1500)));
+        assert!(slow(&mut a, 700));
+        assert!(slow(&mut a, 1500));
         assert_eq!(a.interval_ms, 2000);
-        assert!(a.adapt_interval(ms(2500)));
+        assert!(slow(&mut a, 2500));
         assert_eq!(a.interval_ms, 5000);
-        assert!(!a.adapt_interval(ms(9000)));
+        for _ in 0..5 {
+            assert!(!a.adapt_interval(ms(9000)));
+        }
         assert_eq!(a.interval_ms, 5000);
     }
 

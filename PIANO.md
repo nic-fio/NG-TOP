@@ -1,4 +1,4 @@
-# PIANO — ngtop 1.1: monitorare macchine remote via ssh, senza agenti
+# PIANO — ngtop 1.5: monitorare macchine remote via ssh, senza agenti
 
 (Riepilogo della 1.0.0 in fondo.)
 
@@ -57,7 +57,7 @@ tutto come root (richiede sudo senza password sul server, oppure lo chiede all'a
   fixture lette come "remote" danno gli stessi risultati della lettura diretta.
 - Misure: dati per aggiornamento, latenza, CPU di ngtop e CPU sul server, riportate nel manuale tecnico.
 - Manuali aggiornati (nuovo capitolo "Remote machines" nel manuale utente e capitolo tecnico sul protocollo), sito
-  aggiornato, rilascio 1.1.0.
+  aggiornato, rilascio 1.5.0.
 
 ---
 ## Riepilogo — ngtop 1.0.0 (23/10/2026)

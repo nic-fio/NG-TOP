@@ -154,6 +154,9 @@ pub struct Status {
     pub at: Instant,
 }
 
+/// Sorgente, esecutore di comandi e core logici della macchina remota.
+type RemoteCtx = (Arc<dyn Source>, Arc<dyn CommandRunner>, usize);
+
 pub struct Servizi {
     run_dir: PathBuf,
     cgroup_root: PathBuf,
@@ -197,7 +200,7 @@ pub struct Servizi {
     boot_asked: bool,
     blame_asked: bool,
     /// Macchina remota: azioni disattivate e niente controllo di systemd sul disco locale.
-    remote: Option<(Arc<dyn Source>, Arc<dyn CommandRunner>)>,
+    remote: Option<RemoteCtx>,
 }
 
 impl Default for Servizi {
@@ -218,9 +221,9 @@ impl Servizi {
     }
 
     /// Servizi di una macchina remota: backend a comandi (via `Roots.run`), letture via `Roots.src`.
-    pub fn remote(src: Arc<dyn Source>, run: Arc<dyn CommandRunner>) -> Self {
+    pub fn remote(src: Arc<dyn Source>, run: Arc<dyn CommandRunner>, ncores: usize) -> Self {
         let mut s = Self::build(None, PathBuf::from("/run"), PathBuf::from("/sys/fs/cgroup"));
-        s.remote = Some((src, run));
+        s.remote = Some((src, run, ncores));
         s
     }
 
@@ -293,7 +296,7 @@ impl Servizi {
     }
 
     fn start(&mut self) {
-        if let Some((src, run)) = self.remote.clone() {
+        if let Some((src, run, ncores)) = self.remote.clone() {
             if !crate::collect::services::systemd_present_in(&*src, &self.run_dir) {
                 self.avail = Availability::NoSystemd;
                 return;
@@ -302,7 +305,12 @@ impl Servizi {
                 .backend
                 .clone()
                 .unwrap_or_else(|| crate::collect::services::backend_for(&src, &run));
-            self.client = Some(Client::spawn_with(backend, self.cgroup_root.clone(), src));
+            self.client = Some(Client::spawn_with(
+                backend,
+                self.cgroup_root.clone(),
+                src,
+                ncores,
+            ));
             self.avail = Availability::Available;
             return;
         }

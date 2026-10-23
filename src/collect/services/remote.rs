@@ -378,7 +378,7 @@ impl Backend for RemoteBackend {
             JOURNAL_TIMEOUT,
         )?;
         if out.status != Some(0) {
-            return Err(first_line(&out.stderr, "journalctl failed"));
+            return Err(super::journal_error(&out.stderr));
         }
         Ok(parse_journal_json(&String::from_utf8_lossy(&out.stdout)))
     }
@@ -1151,7 +1151,7 @@ mod tests {
             delay: Duration::from_millis(400),
         });
         let backend: Arc<dyn Backend> = Arc::new(RemoteBackend::new(src(), r));
-        let c = Client::spawn_with(backend, PathBuf::from("/sys/fs/cgroup"), src());
+        let c = Client::spawn_with(backend, PathBuf::from("/sys/fs/cgroup"), src(), 4);
         let t = Instant::now();
         c.send(Request::Units(Scope::System));
         c.send(Request::Blame);

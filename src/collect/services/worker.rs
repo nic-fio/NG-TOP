@@ -50,19 +50,21 @@ pub struct Client {
 impl Client {
     /// Avvia il thread di lavoro. Il thread termina da solo quando il `Client` viene scartato.
     pub fn spawn(backend: Arc<dyn Backend>, cgroup_root: PathBuf) -> Client {
-        Self::spawn_with(backend, cgroup_root, Arc::new(LocalSource))
+        let ncores = thread::available_parallelism().map_or(1, |n| n.get());
+        Self::spawn_with(backend, cgroup_root, Arc::new(LocalSource), ncores)
     }
 
     /// Come `spawn`, ma memoria/CPU dal cgroup e `/proc/PID/comm` si leggono da `src`
     /// (per una macchina remota: la `Source` remota e `cgroup_root` = `/sys/fs/cgroup`).
+    /// `ncores` = core logici della macchina osservata, per la CPU% (remoto: `sys.cpu.logical`).
     pub fn spawn_with(
         backend: Arc<dyn Backend>,
         cgroup_root: PathBuf,
         src: Arc<dyn Source>,
+        ncores: usize,
     ) -> Client {
         let (tx, req_rx) = channel();
         let (resp_tx, rx) = channel();
-        let ncores = thread::available_parallelism().map_or(1, |n| n.get());
         let sampler = CgroupSampler::with_source(Arc::clone(&src), cgroup_root, ncores);
         let spawned = thread::Builder::new()
             .name("ngtop-services".into())

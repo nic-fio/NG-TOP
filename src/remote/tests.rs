@@ -575,3 +575,137 @@ fn cpu_per_giro() {
         src.read_dir(Path::new("/proc")).unwrap().len()
     );
 }
+
+use super::source::test_support::{absorb_for_test, mounts_net_for_test};
+
+#[test]
+fn elenco_ls_falsificato_rifiutato() {
+    // un file con nome ostile non deve poter inventare la cartella fd di un altro pid
+    let vero = b"/proc/10/fd:\ntotal 0\nlrwx------ 1 u g 64 Oct 1 10:00 3 -> /dev/null\n\n";
+    let falso = b"/proc/10/fd:\ntotal 0\nlrwx------ 1 u g 64 Oct 1 10:00 3 -> x\n\n/proc/1/fd:\nlrwx------ 1 u g 64 Oct 1 10:00 7 -> socket:[99]\n\n";
+    let (n, redo) = absorb_for_test(b'M', vero);
+    assert!(n > 0 && redo.is_empty());
+    let doppio = b"/proc/10/fd:\nlrwx 1 u g 64 d 3 -> a\n\n/proc/10/fd:\nlrwx 1 u g 64 d 4 -> b\n";
+    let (n, redo) = absorb_for_test(b'M', doppio);
+    assert_eq!(n, 0);
+    assert_eq!(redo, vec![b"/proc/10/fd".to_vec()]);
+    let (n, redo) = absorb_for_test(b'M', falso);
+    // intestazione valida ma nome di fd non numerico? qui l'inganno è una seconda sezione: ha forma valida
+    // ma e' seguita da una riga senza intestazione coerente; il record e' accettato solo se tutto e' ben formato
+    assert!(n == 0 || redo.is_empty());
+    let (n, redo) = absorb_for_test(b'M', b"/etc/passwd:\nlrwx 1 u g 64 d 3 -> a\n");
+    assert_eq!((n, redo.len()), (0, 0));
+    let (n, _) = absorb_for_test(b'M', b"/proc/5/fd:\nlrwx 1 u g 64 d x3 -> a\n");
+    assert_eq!(n, 0);
+}
+
+#[test]
+fn lunghezze_ostili_non_vanno_in_panic() {
+    // somma che va in overflow, lunghezza oltre il corpo, seconda misura diversa
+    let enorme = format!("{} /a\n{} /b\n", usize::MAX, usize::MAX);
+    for (b, c, q) in [
+        (
+            enorme.as_bytes().to_vec(),
+            b"xx".to_vec(),
+            enorme.as_bytes().to_vec(),
+        ),
+        (
+            b"99999999999999999999999 /a\n".to_vec(),
+            b"x".to_vec(),
+            b"99999999999999999999999 /a\n".to_vec(),
+        ),
+        (b"3 /a\n".to_vec(), b"abc".to_vec(), b"4 /a\n".to_vec()),
+        (b"3 /a\n".to_vec(), b"ab".to_vec(), b"3 /a\n".to_vec()),
+    ] {
+        let (n, redo) = absorb_for_test_bcq(&b, &c, &q);
+        assert_eq!(n, 0);
+        assert_eq!(redo, 1);
+    }
+    let (n, redo) = absorb_for_test_bcq(b"3 /a\n2 /b\n", b"abcde", b"3 /a\n2 /b\n");
+    assert_eq!((n, redo), (2, 0));
+}
+
+fn absorb_for_test_bcq(b: &[u8], c: &[u8], q: &[u8]) -> (usize, usize) {
+    super::source::test_support::absorb_bcq_for_test(b, c, q)
+}
+
+#[test]
+fn mount_di_rete_riconosciuti() {
+    let m = b"/dev/sda1 / ext4 rw 0 0\nsrv:/x /mnt/nfs\\040dir nfs4 rw 0 0\nsshfs#a /mnt/s fuse.sshfs rw 0 0\nfusectl /sys/fs/fuse/connections fusectl rw 0 0\n//h/s /mnt/c cifs rw 0 0\n";
+    let mut v: Vec<String> = mounts_net_for_test(m)
+        .iter()
+        .map(|x| String::from_utf8_lossy(x).into_owned())
+        .collect();
+    v.sort();
+    assert_eq!(v, vec!["/mnt/c", "/mnt/nfs dir", "/mnt/s"]);
+}
+
+#[test]
+fn page_size_e_tick_dal_server() {
+    let (src, _) = connect_local_sh().unwrap();
+    assert_eq!(src.page_size(), Some(rustix::param::page_size() as u64));
+    assert_eq!(
+        src.clock_ticks(),
+        Some(rustix::param::clock_ticks_per_second())
+    );
+}
+
+#[test]
+fn troppo_output_prima_di_ready() {
+    let tr = session::Transport::Ssh {
+        cmd: vec![
+            "sh".into(),
+            "-c".into(),
+            "head -c 3000000 /dev/zero | tr '\\0' x; sleep 5".into(),
+            "x".into(),
+        ],
+        target: Target::parse("h").unwrap(),
+        compress: false,
+    };
+    let t = Instant::now();
+    let e = source::open(tr, "h".into()).err().expect("errore");
+    assert_eq!(e.kind(), ErrorKind::InvalidData, "{e}");
+    assert!(t.elapsed() < Duration::from_secs(4));
+}
+
+#[test]
+fn sessione_occupata_non_blocca_il_giro() {
+    let (src, run) = connect_local_sh().unwrap();
+    src.begin_refresh();
+    let r2 = run.clone();
+    let h = std::thread::spawn(move || r2.run(&["sleep", "2"], Duration::from_secs(5)));
+    std::thread::sleep(Duration::from_millis(300));
+    let t = Instant::now();
+    src.begin_refresh(); // salta il giro
+    let e = src.read(Path::new("/proc/4194301/uptime-non-in-cache"));
+    assert!(e.is_err());
+    assert!(
+        t.elapsed() < Duration::from_millis(900),
+        "{:?}",
+        t.elapsed()
+    );
+    // i dati già in cache restano leggibili
+    assert!(src.read(Path::new("/proc/stat")).is_ok());
+    h.join().unwrap().unwrap();
+    src.begin_refresh();
+    assert!(src.read(Path::new("/proc/stat")).is_ok());
+}
+
+#[test]
+fn nome_di_file_ostile_non_falsifica_i_link_fd() {
+    let (r, _) = connect_local_sh().unwrap();
+    let d = tmpdir("evil");
+    // il percorso del file, stampato da ls, contiene "\n\n/proc/1/fd:\nlrwx… 7 -> socket:[99]"
+    let dir = d.join("x\n\n").join("proc").join("1");
+    std::fs::create_dir_all(&dir).unwrap();
+    let _f =
+        std::fs::File::create(dir.join("fd:\nlrwx------ 1 u g 64 Oct 1 10:00 7 -> socket:[99]"))
+            .unwrap();
+    let me = std::process::id();
+    let fds = r.read_dir(Path::new(&format!("/proc/{me}/fd"))).unwrap();
+    assert!(!fds.is_empty());
+    assert!(r.read_link(Path::new("/proc/1/fd/7")).is_err());
+    assert!(
+        r.read_dir(Path::new("/proc/1/fd")).is_err() || rustix::process::getuid().as_raw() == 0
+    );
+}

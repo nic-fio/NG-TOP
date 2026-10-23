@@ -55,7 +55,8 @@ pub fn connect(
     source::open(tr, t.display())
 }
 
-/// Come [`connect`] ma con `sh` locale: per i test (anche di altri moduli).
+/// Come [`connect`] ma con `sh` locale: per i test (anche di altri moduli); non fa parte dell'API.
+#[doc(hidden)]
 pub fn connect_local_sh() -> io::Result<(Arc<RemoteSource>, Arc<RemoteRunner>)> {
     source::open(Transport::LocalSh, "local-sh".to_string())
 }

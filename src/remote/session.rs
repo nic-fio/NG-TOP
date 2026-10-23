@@ -19,6 +19,10 @@ use std::time::{Duration, Instant};
 
 use super::Target;
 
+/// Tetti di memoria sui dati ricevuti da un server non fidato.
+const MAX_BEFORE_READY: usize = 1 << 20;
+const MAX_RESPONSE: usize = 128 << 20;
+
 pub(crate) const AGENT: &str = include_str!("agent.sh");
 
 /// Come avviare la sessione.
@@ -197,6 +201,9 @@ pub(crate) struct Session {
     ng: String,
     seq: u64,
     hint: usize,
+    /// Dimensione della pagina e tick al secondo del server (`getconf`, ripiego 4096 / 100).
+    pub page_size: u64,
+    pub clock_ticks: u64,
     pub stderr_tail: Arc<Mutex<Vec<u8>>>,
     pub bytes_in: Arc<AtomicU64>,
 }
@@ -305,6 +312,8 @@ impl Session {
             ng: ng.clone(),
             seq: 0,
             hint: 0,
+            page_size: 4096,
+            clock_ticks: 100,
             stderr_tail,
             bytes_in,
         };
@@ -319,9 +328,29 @@ impl Session {
             if let Some(i) = find(&s.buf, &marker, 0) {
                 let nl = s.buf[i..].iter().position(|&b| b == b'\n');
                 if let Some(nl) = nl {
+                    // "<NG> READY <flag> <pagesize> <clk_tck>"
+                    let line =
+                        String::from_utf8_lossy(&s.buf[i + marker.len()..i + nl]).into_owned();
+                    let mut f = line.split_whitespace().skip(1);
+                    s.page_size = f
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .filter(|&n| n > 0)
+                        .unwrap_or(4096);
+                    s.clock_ticks = f
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .filter(|&n| n > 0)
+                        .unwrap_or(100);
                     s.pos = i + nl + 1;
                     break;
                 }
+            }
+            if s.buf.len() > MAX_BEFORE_READY {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "too much output before the remote agent started",
+                ));
             }
             let left = deadline.saturating_duration_since(Instant::now());
             match s.rx.recv_timeout(left) {
@@ -402,6 +431,12 @@ impl Session {
                 self.buf.drain(..self.pos);
                 self.hint = self.hint.saturating_sub(self.pos);
                 self.pos = 0;
+            }
+            if self.buf.len() > MAX_RESPONSE {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "remote response too large",
+                ));
             }
             let left = deadline.saturating_duration_since(Instant::now());
             match self.rx.recv_timeout(left) {

@@ -114,23 +114,65 @@ fn remote_local_sh_matches_local_on_fixture() {
     let mut loc = System::new(local());
     let mut rem = System::new(rr);
     for s in [&mut loc, &mut rem] {
+        s.collect_conns = true;
         s.clock_ticks = 100;
         s.page_size = 4096;
         s.refresh_with_dt(0.0);
         s.refresh_with_dt(1.0);
     }
-    assert_eq!(loc.cpu.logical, rem.cpu.logical);
-    assert_eq!(loc.cpu.model, rem.cpu.model);
-    assert_eq!(loc.cpu.cores.len(), rem.cpu.cores.len());
-    assert_eq!(loc.mem.total, rem.mem.total);
-    assert_eq!(loc.mem.available, rem.mem.available);
-    assert_eq!(loc.mem.cache, rem.mem.cache);
-    assert_eq!(loc.processes.len(), rem.processes.len());
-    let pids = |s: &System| s.processes.iter().map(|p| p.pid).collect::<BTreeSet<_>>();
-    assert_eq!(pids(&loc), pids(&rem));
-    assert_eq!(names(&loc), names(&rem));
-    assert_eq!(loc.load.one, rem.load.one);
-    // Il filesystem: in locale viene da statvfs.json, in remoto da `df` (diverso per costruzione):
-    // si confronta solo che l'elenco dei mount venga dalla stessa mountinfo.
-    assert!(rem.disks.filesystems.len() <= loc.disks.filesystems.len() + 50);
+    // Uguaglianza piena: la fixture è statica e il tempo è fissato (dt = 1 s).
+    assert_eq!(format!("{:?}", loc.cpu), format!("{:?}", rem.cpu), "cpu");
+    assert_eq!(format!("{:?}", loc.mem), format!("{:?}", rem.mem), "mem");
+    assert_eq!(format!("{:?}", loc.load), format!("{:?}", rem.load), "load");
+    assert_eq!(
+        format!("{:?}", loc.uptime),
+        format!("{:?}", rem.uptime),
+        "uptime"
+    );
+    assert!(!loc.processes.is_empty());
+    let sorted = |s: &System| {
+        let mut v = s.processes.clone();
+        v.sort_by_key(|p| p.pid);
+        v
+    };
+    let (lp, rp) = (sorted(&loc), sorted(&rem));
+    assert_eq!(lp.len(), rp.len(), "process count");
+    for (a, b) in lp.iter().zip(&rp) {
+        // PartialEq di Process: pid, nome, cmdline, utente, rss, stato, thread, cpu, io…
+        assert_eq!(a, b, "process {}", a.pid);
+    }
+    assert!(!loc.net.ifaces.is_empty());
+    assert_eq!(format!("{:?}", loc.net), format!("{:?}", rem.net), "net");
+    assert_eq!(
+        format!("{:?}", loc.disks.io),
+        format!("{:?}", rem.disks.io),
+        "disk io"
+    );
+    assert_eq!(loc.disks.read_rate, rem.disks.read_rate);
+    assert_eq!(loc.disks.write_rate, rem.disks.write_rate);
+    assert_eq!(format!("{:?}", loc.gpu), format!("{:?}", rem.gpu), "gpu");
+    assert_eq!(loc.cpu_temp, rem.cpu_temp, "temperature sensor");
+    assert_eq!(loc.zram, rem.zram, "zram");
+    assert_eq!(
+        format!("{:?}", loc.conns.conns),
+        format!("{:?}", rem.conns.conns),
+        "connections"
+    );
+    // Filesystem: stessi mount, tipo, sorgente e opzioni. Lo spazio no: in locale viene da
+    // statvfs.json, in remoto da `df` sulla macchina vera, quindi i numeri non possono coincidere.
+    let fs = |s: &System| {
+        s.disks
+            .filesystems
+            .iter()
+            .map(|f| {
+                (
+                    f.mountpoint.clone(),
+                    f.source.clone(),
+                    f.fstype.clone(),
+                    f.options.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(fs(&loc), fs(&rem), "filesystem list");
 }

@@ -15,14 +15,70 @@ use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError, Weak};
 use std::time::Duration;
 
 use super::session::{Rec, Session, Transport, rc_error, sh_quote};
 use crate::source::{CommandOutput, CommandRunner, FsStat, RemoteState, RemoteStatus, Source};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// Attesa massima del lock di sessione per le letture: se un comando lento (journalctl…) la occupa, si salta il giro.
+const SOURCE_WAIT: Duration = Duration::from_millis(200);
 const PATTERN_MIN: usize = 3;
+/// Mount point dei filesystem di rete o FUSE da /proc/mounts: una statvfs su un mount appeso bloccherebbe
+/// l'agente, quindi si leggono a parte, una alla volta e con scadenza.
+fn net_mounts(cache: &Cache) -> HashSet<Vec<u8>> {
+    fn unescape(f: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < f.len() {
+            if f[i] == b'\\'
+                && i + 3 < f.len()
+                && let Ok(n) = u8::from_str_radix(&String::from_utf8_lossy(&f[i + 1..i + 4]), 8)
+            {
+                out.push(n);
+                i += 4;
+            } else {
+                out.push(f[i]);
+                i += 1;
+            }
+        }
+        out
+    }
+    let mut set = HashSet::new();
+    if let Some((0, body)) = cache.entries.get(&(Kind::File, b"/proc/mounts".to_vec())) {
+        for line in body.split(|&b| b == b'\n') {
+            let mut f = line.split(|&b| b == b' ');
+            let (_, Some(mnt), Some(ty)) = (f.next(), f.next(), f.next()) else {
+                continue;
+            };
+            let ty = String::from_utf8_lossy(ty);
+            if ty.starts_with("nfs")
+                || matches!(
+                    ty.as_ref(),
+                    "cifs"
+                        | "smb3"
+                        | "smbfs"
+                        | "ncpfs"
+                        | "afs"
+                        | "ceph"
+                        | "glusterfs"
+                        | "9p"
+                        | "lustre"
+                        | "davfs"
+                )
+                || (ty.starts_with("fuse") && ty != "fusectl")
+            {
+                set.insert(unescape(mnt));
+            }
+        }
+    }
+    set
+}
+
+/// Da rifare dopo un record rifiutato: (modelli di file, link, cartelle fd).
+type Redo = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>);
+
 /// Link, uid e cartelle fuori da /proc (es. /sys/block) cambiano di rado: si rileggono ogni tanti giri.
 const STICKY_LAPS: u32 = 10;
 /// I percorsi non per-pid letti di recente restano nel manifesto (letture periodiche ogni pochi giri).
@@ -113,6 +169,8 @@ struct Cache {
     link_dirs: HashSet<Vec<u8>>,
     /// Ultimo giro in cui è stato letto ciascun percorso non per-pid: resta nel manifesto per `RECENT_LAPS` giri.
     last_seen: HashMap<Key, u32>,
+    /// Mount di rete/FUSE che non rispondono: non si interrogano fino a questo giro.
+    net_skip: HashMap<Vec<u8>, u32>,
 }
 
 #[derive(Default)]
@@ -121,6 +179,8 @@ struct StatusInfo {
     latency_ms: Option<u32>,
     last_bytes: u64,
     state: Option<RemoteState>,
+    page_size: Option<u64>,
+    clock_ticks: Option<u64>,
 }
 
 struct Shared {
@@ -145,12 +205,15 @@ pub(super) fn open(
     target: String,
 ) -> io::Result<(Arc<RemoteSource>, Arc<RemoteRunner>)> {
     let sess = Session::start(&tr, true)?;
+    let (page_size, clock_ticks) = (sess.page_size, sess.clock_ticks);
     let sh = Arc::new(Shared {
         transport: tr,
         target,
         sess: Mutex::new(Some(sess)),
         status: Mutex::new(StatusInfo {
             state: Some(RemoteState::Connected),
+            page_size: Some(page_size),
+            clock_ticks: Some(clock_ticks),
             ..Default::default()
         }),
         reconnecting: AtomicBool::new(false),
@@ -180,8 +243,13 @@ impl Shared {
 
     /// Una richiesta sulla sessione (serializzata dal Mutex). Se fallisce la sessione si scarta e parte
     /// la riconnessione in sottofondo.
-    fn request(self: &Arc<Self>, lines: &[u8], timeout: Duration) -> io::Result<(Vec<Rec>, u64)> {
-        let mut g = lock(&self.sess);
+    fn request(
+        self: &Arc<Self>,
+        lines: &[u8],
+        timeout: Duration,
+        wait: Option<Duration>,
+    ) -> io::Result<(Vec<Rec>, u64)> {
+        let mut g = self.lock_sess(wait)?;
         let Some(s) = g.as_mut() else {
             return Err(self.not_connected());
         };
@@ -201,6 +269,29 @@ impl Shared {
         }
     }
 
+    /// Lock della sessione; con `wait` rinuncia dopo quel tempo (`WouldBlock`) invece di bloccare.
+    fn lock_sess(&self, wait: Option<Duration>) -> io::Result<MutexGuard<'_, Option<Session>>> {
+        let Some(w) = wait else {
+            return Ok(lock(&self.sess));
+        };
+        let end = std::time::Instant::now() + w;
+        loop {
+            match self.sess.try_lock() {
+                Ok(g) => return Ok(g),
+                Err(TryLockError::Poisoned(e)) => return Ok(e.into_inner()),
+                Err(TryLockError::WouldBlock) => {
+                    if std::time::Instant::now() >= end {
+                        return Err(io::Error::new(
+                            io::ErrorKind::WouldBlock,
+                            "remote session busy",
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
+    }
+
     fn lost(self: &Arc<Self>, msg: String) {
         lock(&self.status).state = Some(RemoteState::Reconnecting(msg));
         if self.reconnecting.swap(true, Ordering::SeqCst) {
@@ -214,6 +305,11 @@ impl Shared {
                 let Some(sh) = weak.upgrade() else { return };
                 match Session::start(&sh.transport, false) {
                     Ok(s) => {
+                        {
+                            let mut st = lock(&sh.status);
+                            st.page_size = Some(s.page_size);
+                            st.clock_ticks = Some(s.clock_ticks);
+                        }
                         *lock(&sh.sess) = Some(s);
                         let _ = sh.refresh_hostname();
                         lock(&sh.status).state = Some(RemoteState::Connected);
@@ -221,7 +317,20 @@ impl Shared {
                         return;
                     }
                     Err(e) => {
-                        lock(&sh.status).state = Some(RemoteState::Reconnecting(e.to_string()));
+                        let msg = e.to_string();
+                        // rifiutato in modo definitivo (autenticazione, host key): inutile insistere
+                        if [
+                            "Permission denied",
+                            "Host key verification failed",
+                            "HOST IDENTIFICATION HAS CHANGED",
+                        ]
+                        .iter()
+                        .any(|m| msg.contains(m))
+                        {
+                            lock(&sh.status).state = Some(RemoteState::Failed(msg));
+                            return;
+                        }
+                        lock(&sh.status).state = Some(RemoteState::Reconnecting(msg));
                         wait = (wait * 2).min(Duration::from_secs(10));
                     }
                 }
@@ -234,7 +343,7 @@ impl Shared {
         req.extend_from_slice(b"f ");
         sh_quote(b"/proc/sys/kernel/hostname", &mut req);
         req.push(b'\n');
-        let (recs, _) = self.request(&req, REQUEST_TIMEOUT)?;
+        let (recs, _) = self.request(&req, REQUEST_TIMEOUT, None)?;
         if let Some(r) = recs.first().filter(|r| r.rc == 0) {
             lock(&self.status).hostname = Some(String::from_utf8_lossy(&r.body).trim().to_string());
         }
@@ -529,6 +638,10 @@ impl RemoteSource {
     }
 
     /// Righe "percorso:riga" del grep: si ricompongono i file (righe unite da "\n", newline finale).
+    /// Differenze note rispetto alla lettura locale: un file vuoto o illeggibile non produce righe (diventa
+    /// `NotFound`, non `Ok("")`), il newline finale c'è sempre e un file con NUL può risultare troncato; vale
+    /// solo per i file di testo del kernel (/proc, /sys) scelti da `file_mode`. Un argv enorme (decine di
+    /// migliaia di percorsi, oltre ARG_MAX) non è spezzato a blocchi: quei file risulterebbero assenti.
     fn absorb_grep(cache: &mut Cache, body: &[u8]) {
         let mut cur: Option<(Vec<u8>, Vec<u8>)> = None;
         let flush = |cur: &mut Option<(Vec<u8>, Vec<u8>)>, cache: &mut Cache| {
@@ -561,48 +674,67 @@ impl RemoteSource {
         flush(&mut cur, cache);
     }
 
-    /// Esito di `ls -l` su molte cartelle fd: link e, di riflesso, l'elenco delle cartelle.
-    fn absorb_ls(cache: &mut Cache, body: &[u8]) {
-        let mut dir: Option<Vec<u8>> = None;
-        let mut names: Vec<u8> = Vec::new();
-        let close = |dir: &mut Option<Vec<u8>>, names: &mut Vec<u8>, cache: &mut Cache| {
-            if let Some(d) = dir.take() {
-                cache
-                    .entries
-                    .insert((Kind::Dir, d), (0, std::mem::take(names)));
-            }
-        };
+    /// Esito di `ls -l` su molte cartelle fd: link e, di riflesso, l'elenco delle cartelle. Il formato è
+    /// verificato rigorosamente (intestazioni `/proc/<cifre>/fd:` uniche, nomi numerici): un nome di file
+    /// ostile non deve poter falsificare le cartelle di altri processi. Se qualcosa non torna non si inserisce
+    /// nulla e si restituiscono le cartelle valide da rileggere una a una.
+    fn absorb_ls(cache: &mut Cache, body: &[u8]) -> Vec<Vec<u8>> {
+        fn valid_header(d: &[u8]) -> bool {
+            d.strip_prefix(b"/proc/")
+                .and_then(|r| r.strip_suffix(b"/fd"))
+                .is_some_and(|pid| !pid.is_empty() && pid.iter().all(u8::is_ascii_digit))
+        }
+        type Section = (Vec<u8>, Vec<(Vec<u8>, Vec<u8>)>);
+        let mut sections: Vec<Section> = Vec::new();
+        let mut seen: HashSet<Vec<u8>> = HashSet::new();
+        let mut bad = false;
         for line in body.split(|&b| b == b'\n') {
-            if line.starts_with(b"/")
-                && line.ends_with(b":")
-                && !line.windows(4).any(|w| w == b" -> ")
-            {
-                close(&mut dir, &mut names, cache);
-                dir = Some(line[..line.len() - 1].to_vec());
-            } else if let Some(i) = line.windows(4).position(|w| w == b" -> ")
-                && let Some(d) = &dir
-            {
-                let name = line[..i].rsplit(|&b| b == b' ').next().unwrap_or(&[]);
-                if name.is_empty() {
-                    continue;
+            let has_arrow = line.windows(4).any(|w| w == b" -> ");
+            if !has_arrow && line.ends_with(b":") && line.starts_with(b"/") {
+                let d = line[..line.len() - 1].to_vec();
+                if !valid_header(&d) || !seen.insert(d.clone()) {
+                    bad = true;
                 }
-                let mut path = d.clone();
-                path.push(b'/');
-                path.extend_from_slice(name);
-                cache
-                    .entries
-                    .insert((Kind::Link, path), (0, line[i + 4..].to_vec()));
-                names.extend_from_slice(name);
-                names.push(0);
+                sections.push((d, Vec::new()));
+            } else if let Some(i) = line.windows(4).position(|w| w == b" -> ") {
+                let name = line[..i].rsplit(|&b| b == b' ').next().unwrap_or(&[]);
+                match sections.last_mut() {
+                    Some((_, ents)) if !name.is_empty() && name.iter().all(u8::is_ascii_digit) => {
+                        ents.push((name.to_vec(), line[i + 4..].to_vec()));
+                    }
+                    _ => bad = true,
+                }
             }
         }
-        close(&mut dir, &mut names, cache);
+        if bad {
+            let mut dirs: Vec<Vec<u8>> = sections
+                .into_iter()
+                .map(|s| s.0)
+                .filter(|d| valid_header(d))
+                .collect();
+            dirs.sort();
+            dirs.dedup();
+            return dirs;
+        }
+        for (d, ents) in sections {
+            let mut names = Vec::new();
+            for (n, t) in ents {
+                let mut path = d.clone();
+                path.push(b'/');
+                path.extend_from_slice(&n);
+                cache.entries.insert((Kind::Link, path), (0, t));
+                names.extend_from_slice(&n);
+                names.push(0);
+            }
+            cache.entries.insert((Kind::Dir, d), (0, names));
+        }
+        Vec::new()
     }
 
     /// Inserisce i record di una risposta nella cache. Restituisce ciò che va rifatto per file:
     /// (modelli di file da rileggere con `cat`, link da rileggere uno a uno).
-    fn absorb(cache: &mut Cache, recs: Vec<Rec>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
-        let (mut redo_files, mut redo_links) = (Vec::new(), Vec::new());
+    fn absorb(cache: &mut Cache, recs: Vec<Rec>) -> Redo {
+        let (mut redo_files, mut redo_links, mut redo_dirs) = (Vec::new(), Vec::new(), Vec::new());
         let mut it = recs.into_iter().peekable();
         while let Some(r) = it.next() {
             match r.kind {
@@ -644,10 +776,16 @@ impl RemoteSource {
                         }
                     }
                 }
-                b'M' => Self::absorb_ls(cache, &r.body),
+                b'M' => redo_dirs.extend(Self::absorb_ls(cache, &r.body)),
                 b'B' => {
-                    // lunghezze (wc) + byte concatenati (cat): si accetta solo se le somme tornano
-                    let Some(c) = it.next_if(|n| n.kind == b'C') else {
+                    // lunghezze (wc) + byte concatenati (cat) + seconda misura (wc): si accetta solo se le
+                    // due misure coincidono riga per riga e la somma torna. Rischio residuo: due processi che
+                    // si scambiano byte con lunghezze identiche in entrambe le misure ma diverse durante il cat.
+                    let (Some(c), Some(q)) = (
+                        it.next_if(|n| n.kind == b'C'),
+                        it.next_if(|n| n.kind == b'Q'),
+                    ) else {
+                        redo_files.push(r.arg);
                         continue;
                     };
                     let mut list = Vec::new();
@@ -660,15 +798,18 @@ impl RemoteSource {
                             list.push((n, p.trim_start().as_bytes().to_vec()));
                         }
                     }
-                    if list.iter().map(|x| x.0).sum::<usize>() != c.body.len() {
+                    // mai panic su numeri del server: somma e fette controllate
+                    let total = list.iter().try_fold(0usize, |t, x| t.checked_add(x.0));
+                    if q.body != r.body || total != Some(c.body.len()) {
                         redo_files.push(r.arg);
                         continue;
                     }
-                    let mut off = 0;
+                    let mut off = 0usize;
                     for (n, p) in list {
-                        cache
-                            .entries
-                            .insert((Kind::File, p), (0, c.body[off..off + n].to_vec()));
+                        let Some(chunk) = c.body.get(off..off + n) else {
+                            break;
+                        };
+                        cache.entries.insert((Kind::File, p), (0, chunk.to_vec()));
                         off += n;
                     }
                 }
@@ -707,7 +848,7 @@ impl RemoteSource {
                 }
             }
         }
-        (redo_files, redo_links)
+        (redo_files, redo_links, redo_dirs)
     }
 
     fn do_refresh(&self) -> io::Result<()> {
@@ -753,6 +894,8 @@ impl RemoteSource {
                     .collect();
                 items.extend(extra.into_iter().map(|k| (k, false)));
             }
+            let net = net_mounts(&c);
+            items.retain(|((k, p), _)| !(*k == Kind::Stat && net.contains(p)));
             let refetch_sticky = c.laps < 2 || c.laps.is_multiple_of(STICKY_LAPS);
             if !refetch_sticky {
                 items.retain(|(k, _)| !sticky(k));
@@ -760,13 +903,16 @@ impl RemoteSource {
             (items, t, refetch_sticky)
         };
         let (req, grouped) = Self::build_request(&items);
-        let (recs, bytes) = match self.sh.request(&req, REQUEST_TIMEOUT) {
+        let (recs, bytes) = match self.sh.request(&req, REQUEST_TIMEOUT, Some(SOURCE_WAIT)) {
             Ok(r) => r,
             Err(e) => {
                 // la prossima volta si riparte dallo stesso insieme di letture
                 let mut c = lock(&self.cache);
-                c.entries.clear();
-                c.covered.clear();
+                if e.kind() != io::ErrorKind::WouldBlock {
+                    c.entries.clear();
+                    c.covered.clear();
+                }
+                // sessione occupata da un comando lento: si tengono i dati vecchi e si salta il giro
                 c.touched.extend(old);
                 return Err(e);
             }
@@ -782,7 +928,7 @@ impl RemoteSource {
             .filter(|(_, g)| *g)
             .map(|(k, _)| k.clone())
             .collect();
-        let (mut redo_files, redo_links) = Self::absorb(&mut c, recs);
+        let (mut redo_files, redo_links, redo_dirs) = Self::absorb(&mut c, recs);
         for k in grouped {
             c.entries.entry(k).or_insert((2, Vec::new()));
         }
@@ -822,7 +968,7 @@ impl RemoteSource {
                 sh_quote(pat, &mut req);
                 req.push(b'\n');
             }
-            let (recs, b2) = self.sh.request(&req, REQUEST_TIMEOUT)?;
+            let (recs, b2) = self.sh.request(&req, REQUEST_TIMEOUT, Some(SOURCE_WAIT))?;
             bytes += b2;
             redo_files = Self::absorb(&mut lock(&self.cache), recs).0;
         }
@@ -831,12 +977,63 @@ impl RemoteSource {
             for p in redo_links.iter().take(200) {
                 request_line(&mut req, Kind::Link, false, p);
             }
-            let (recs, b2) = self.sh.request(&req, REQUEST_TIMEOUT)?;
+            let (recs, b2) = self.sh.request(&req, REQUEST_TIMEOUT, Some(SOURCE_WAIT))?;
+            bytes += b2;
+            Self::absorb(&mut lock(&self.cache), recs);
+        }
+        if !redo_dirs.is_empty() {
+            // elenco fd rifiutato (formato sospetto): cartelle rilette una a una con readlink
+            let mut req = Vec::new();
+            for d in redo_dirs.iter().take(500) {
+                req.extend_from_slice(b"K ");
+                sh_quote(d, &mut req);
+                req.extend_from_slice(b" '[0-9]*'\n");
+            }
+            let (recs, b2) = self.sh.request(&req, REQUEST_TIMEOUT, Some(SOURCE_WAIT))?;
             bytes += b2;
             Self::absorb(&mut lock(&self.cache), recs);
         }
         lock(&self.sh.status).last_bytes = bytes;
         Ok(())
+    }
+
+    /// statvfs di un filesystem di rete/FUSE: una richiesta a parte con scadenza di 2 s sul server; se scade o
+    /// manca `timeout`, per 30 giri non si riprova (Err(TimedOut)) così un mount appeso non rallenta ogni giro.
+    fn statvfs_net(&self, p: &[u8]) -> io::Result<Vec<u8>> {
+        let key: Key = (Kind::Stat, p.to_vec());
+        {
+            let mut c = lock(&self.cache);
+            c.touched.insert(key.clone());
+            if let Some((rc, body)) = c.entries.get(&key) {
+                return if *rc == 0 {
+                    Ok(body.clone())
+                } else {
+                    Err(rc_error(*rc))
+                };
+            }
+            let laps = c.laps;
+            if c.net_skip.get(p).is_some_and(|&until| until > laps) {
+                return Err(rc_error(110));
+            }
+        }
+        let mut req = b"h ".to_vec();
+        sh_quote(p, &mut req);
+        req.push(b'\n');
+        let (recs, _) = self.sh.request(&req, REQUEST_TIMEOUT, Some(SOURCE_WAIT))?;
+        let mut c = lock(&self.cache);
+        Self::absorb(&mut c, recs);
+        let laps = c.laps;
+        match c.entries.get(&key) {
+            Some((0, body)) => Ok(body.clone()),
+            Some((rc, _)) => {
+                let rc = *rc;
+                if rc == 110 {
+                    c.net_skip.insert(p.to_vec(), laps + 30);
+                }
+                Err(rc_error(rc))
+            }
+            None => Err(rc_error(110)),
+        }
     }
 
     /// Lettura generica: cache, copertura dei modelli, altrimenti richiesta immediata.
@@ -849,6 +1046,13 @@ impl RemoteSource {
             return Err(self.sh.not_connected());
         }
         let key: Key = (kind, p.to_vec());
+        if kind == Kind::Stat {
+            let c = lock(&self.cache);
+            if net_mounts(&c).contains(p) {
+                drop(c);
+                return self.statvfs_net(p);
+            }
+        }
         {
             let mut c = lock(&self.cache);
             c.touched.insert(key.clone());
@@ -924,7 +1128,7 @@ impl RemoteSource {
                 request_line(&mut req, kind, false, q);
             }
         }
-        let (recs, _) = self.sh.request(&req, REQUEST_TIMEOUT)?;
+        let (recs, _) = self.sh.request(&req, REQUEST_TIMEOUT, Some(SOURCE_WAIT))?;
         let mut c = lock(&self.cache);
         Self::absorb(&mut c, recs);
         if is_fd_dir {
@@ -990,6 +1194,12 @@ impl Source for RemoteSource {
             ffree: n[4],
         })
     }
+    fn page_size(&self) -> Option<u64> {
+        lock(&self.sh.status).page_size
+    }
+    fn clock_ticks(&self) -> Option<u64> {
+        lock(&self.sh.status).clock_ticks
+    }
     fn begin_refresh(&self) {
         if !self.sh.connected() {
             let mut c = lock(&self.cache);
@@ -1032,7 +1242,9 @@ impl CommandRunner for RemoteRunner {
         }
         req.push(b'\n');
         let t0 = std::time::Instant::now();
-        let (recs, _) = self.sh.request(&req, timeout + Duration::from_secs(5))?;
+        let (recs, _) = self
+            .sh
+            .request(&req, timeout + Duration::from_secs(5), None)?;
         let mut it = recs.into_iter();
         let (Some(x), Some(y)) = (it.next(), it.next()) else {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "missing record"));
@@ -1064,5 +1276,45 @@ impl RemoteSource {
     #[doc(hidden)]
     pub fn session_pid_for_test(&self) -> Option<u32> {
         lock(&self.sh.sess).as_ref().map(|s| s.pid())
+    }
+}
+
+/// Funzioni per i test: lavorano sui parser senza una sessione.
+#[cfg(test)]
+pub(super) mod test_support {
+    use super::*;
+
+    /// Assorbe un record e restituisce (voci in cache, cartelle da rileggere).
+    pub fn absorb_for_test(kind: u8, body: &[u8]) -> (usize, Vec<Vec<u8>>) {
+        let mut c = Cache::default();
+        let rec = Rec {
+            kind,
+            arg: Vec::new(),
+            body: body.to_vec(),
+            rc: 0,
+        };
+        let (_, _, dirs) = RemoteSource::absorb(&mut c, vec![rec]);
+        (c.entries.len(), dirs)
+    }
+
+    /// Record B+C+Q: restituisce (voci in cache, numero di ripetizioni richieste).
+    pub fn absorb_bcq_for_test(b: &[u8], c: &[u8], q: &[u8]) -> (usize, usize) {
+        let mut cache = Cache::default();
+        let mk = |kind: u8, body: &[u8]| Rec {
+            kind,
+            arg: b"/proc/[0-9]*/cmdline".to_vec(),
+            body: body.to_vec(),
+            rc: 0,
+        };
+        let (files, _, _) =
+            RemoteSource::absorb(&mut cache, vec![mk(b'B', b), mk(b'C', c), mk(b'Q', q)]);
+        (cache.entries.len(), files.len())
+    }
+
+    pub fn mounts_net_for_test(mounts: &[u8]) -> HashSet<Vec<u8>> {
+        let mut c = Cache::default();
+        c.entries
+            .insert((Kind::File, b"/proc/mounts".to_vec()), (0, mounts.to_vec()));
+        net_mounts(&c)
     }
 }

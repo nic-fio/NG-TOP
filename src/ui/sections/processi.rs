@@ -464,6 +464,11 @@ fn name_of(rows: &[Process], pid: u32) -> String {
 /// Invia il segnale scelto ai bersagli, dopo aver riverificato che siano ancora gli stessi
 /// processi (pid + avvio); riassume l'esito nella riga di stato.
 fn send_dialog(app: &mut App, d: &SignalDialog) {
+    // Difesa in profondità: in remoto un pid è di un'altra macchina, mai agire su quello locale.
+    if app.remote {
+        app.proc.set_status(crate::ui::app::REMOTE_NA.into(), false);
+        return;
+    }
     let sig = d.signal();
     let opened = d.targets();
     if opened.is_empty() {
@@ -550,6 +555,10 @@ fn send_dialog(app: &mut App, d: &SignalDialog) {
 /// F7/F8: nice -1 / +1 sul processo selezionato. Come htop, cambia solo il thread principale
 /// (setpriority su un pid agisce sul thread con tid = pid).
 pub fn change_nice(app: &mut App, delta: i32) {
+    if app.remote {
+        app.proc.set_status(crate::ui::app::REMOTE_NA.into(), false);
+        return;
+    }
     let Some((pid, name, cur)) = app
         .selected_process()
         .map(|p| (p.pid, p.name.clone(), p.nice as i32))

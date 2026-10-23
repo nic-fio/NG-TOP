@@ -126,8 +126,16 @@ impl System {
     pub fn new(roots: Roots) -> Self {
         let users = process::load_users(&*roots.src, &roots.etc.join("passwd"));
         let mut s = System {
-            clock_ticks: rustix::param::clock_ticks_per_second().max(1),
-            page_size: (rustix::param::page_size() as u64).max(1),
+            clock_ticks: roots
+                .src
+                .clock_ticks()
+                .unwrap_or_else(rustix::param::clock_ticks_per_second)
+                .max(1),
+            page_size: roots
+                .src
+                .page_size()
+                .unwrap_or_else(|| rustix::param::page_size() as u64)
+                .max(1),
             cpu: CpuStats::default(),
             mem: MemInfo::default(),
             load: LoadAvg::default(),

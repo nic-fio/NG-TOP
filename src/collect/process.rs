@@ -182,7 +182,7 @@ fn cmdline_text(raw: &[u8], name: &str) -> String {
 
 /// Legge un file piccolo in un buffer riusato (niente allocazioni per file).
 fn read_into<'a>(src: &dyn Source, path: &Path, buf: &'a mut Vec<u8>) -> Option<Cow<'a, str>> {
-    *buf = src.read(path).ok()?;
+    src.read_into(path, buf).ok()?;
     Some(String::from_utf8_lossy(buf))
 }
 

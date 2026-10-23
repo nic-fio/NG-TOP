@@ -72,7 +72,11 @@ pub fn hostname(sys: &System) -> String {
 /// Sezione Servizi per la macchina in uso (backend remoto a comandi se si è in remoto).
 pub fn services_for(sys: &System) -> sections::servizi::Servizi {
     if sys.remote_status().is_some() {
-        sections::servizi::Servizi::remote(sys.roots.src.clone(), sys.roots.run.clone())
+        sections::servizi::Servizi::remote(
+            sys.roots.src.clone(),
+            sys.roots.run.clone(),
+            sys.cpu.logical.max(1),
+        )
     } else {
         sections::servizi::Servizi::new()
     }

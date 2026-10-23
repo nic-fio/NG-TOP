@@ -218,6 +218,18 @@ pub fn backend_for(src: &Arc<dyn Source>, run: &Arc<dyn CommandRunner>) -> Arc<d
     }
 }
 
+/// Messaggio per un errore di `journalctl` (stderr): i permessi mancanti hanno un testo dedicato.
+pub fn journal_error(stderr: &[u8]) -> String {
+    let t = String::from_utf8_lossy(stderr);
+    let l = t.to_lowercase();
+    if l.contains("insufficient permissions") || l.contains("no journal files were opened") {
+        return "The journal of this unit needs more permissions (run ngtop as root, or add the user to the systemd-journal group)".to_string();
+    }
+    t.lines()
+        .find(|l| !l.trim().is_empty())
+        .map_or_else(|| "journalctl failed".to_string(), |l| l.trim().to_string())
+}
+
 /// Fasi di avvio con la loro durata in secondi (come `systemd-analyze time`).
 /// `None` se mancano i dati di userspace (container, avvio non terminato).
 pub fn boot_phases(t: &BootTimestamps) -> Option<Vec<(Phase, f64)>> {
@@ -396,6 +408,16 @@ mod tests {
         assert!((b[0].1 - 4.1).abs() < 1e-9);
         assert!((b[1].1 - 62.5).abs() < 1e-9);
         assert!((b[2].1 - 0.696).abs() < 1e-9);
+    }
+
+    #[test]
+    fn errore_journal_senza_permessi() {
+        let e = journal_error(
+            b"Hint: ...\nNo journal files were opened due to insufficient permissions.\n",
+        );
+        assert!(e.starts_with("The journal of this unit needs more permissions"));
+        assert_eq!(journal_error(b"boom\nx"), "boom");
+        assert_eq!(journal_error(b""), "journalctl failed");
     }
 
     #[test]

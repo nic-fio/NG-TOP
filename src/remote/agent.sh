@@ -15,12 +15,30 @@ NL='
 '
 exec 3>&1
 HAVE_TIMEOUT=
-command -v timeout >/dev/null 2>&1 && HAVE_TIMEOUT=1
+TK=
+# timeout(1): GNU e busybox recenti; i busybox vecchi vogliono -t (non supportati: nessun tempo massimo remoto)
+timeout 1 true >/dev/null 2>&1 && HAVE_TIMEOUT=1
+[ -n "$HAVE_TIMEOUT" ] && timeout -k 1 1 true >/dev/null 2>&1 && TK=1
+LSQ=
+# ls -q: i caratteri non stampabili (newline compresi) diventano "?", cosi' un nome ostile non puo' falsificare righe;
+# busybox non ha -q ma li sostituisce comunque
+ls -q / >/dev/null 2>&1 && LSQ=-q
+PAGESIZE=$(getconf PAGESIZE 2>/dev/null)
+CLKTCK=$(getconf CLK_TCK 2>/dev/null)
+case $PAGESIZE in ''|*[!0-9]*) PAGESIZE=4096 ;; esac
+case $CLKTCK in ''|*[!0-9]*) CLKTCK=100 ;; esac
 STATC=
 stat -L -c '%u' / >/dev/null 2>&1 && STATC=1
 STATF=
 stat -f -c '%S' / >/dev/null 2>&1 && STATF=1
 
+# tmo SECONDI CMD...: con tempo massimo se timeout(1) c'e'
+tmo() {
+  ng_s=$1; shift
+  if [ -z "$HAVE_TIMEOUT" ]; then "$@"
+  elif [ -n "$TK" ]; then timeout -k 1 "$ng_s" "$@"
+  else timeout "$ng_s" "$@"; fi
+}
 e() { printf '\n%s ! %s\n' "$NG" "$1"; }
 # classifica un errore di lettura: ritorna un errno
 errc() {
@@ -64,7 +82,8 @@ T() {
   done
 }
 # B GLOB: molti file con possibili NUL (cmdline) con un solo wc e un solo cat: record B = "lunghezza percorso"
-# per riga, record C = i byte concatenati. Il client controlla che le lunghezze tornino (altrimenti rifa' con F).
+# per riga, record C = i byte concatenati, record Q = stessa misura rifatta dopo il cat. Il client accetta solo
+# se B e Q coincidono e le somme tornano (altrimenti ripete il blocco).
 B() {
   ng_pat=$1
   set -- $1
@@ -74,6 +93,10 @@ B() {
   e 0
   printf '%s C\n' "$NG"
   cat "$@" 2>/dev/null
+  e 0
+  # seconda misura dopo il cat: il client accetta solo se coincide riga per riga con la prima
+  printf '%s Q\n' "$NG"
+  wc -c "$@" 2>/dev/null
   e 0
 }
 # G ARG...: contenuto di molti file di TESTO con UN solo grep: ogni riga esce come "percorso:riga" (nessuna
@@ -93,10 +116,16 @@ M() {
   ng_n=$#
   for ng_pat; do set -- "$@" $ng_pat; done
   shift $ng_n
-  [ -d "$1" ] || return 0
+  # solo cartelle leggibili: una illeggibile non deve comparire come "vuota"
+  ng_n=$#
+  for ng_d; do
+    [ -d "$ng_d" ] && [ -r "$ng_d" ] && [ -x "$ng_d" ] && set -- "$@" "$ng_d"
+  done
+  shift $ng_n
+  [ $# -gt 0 ] || return 0
   printf '%s M\n' "$NG"
   [ $# = 1 ] && printf '%s:\n' "$1"
-  ls -l "$@" 2>/dev/null
+  ls -l $LSQ "$@" 2>/dev/null
   e 0
 }
 # l PATH: destinazione di un link
@@ -176,7 +205,7 @@ U() {
 # W PERCORSO...: link di molti percorsi con UN solo ls (righe "... percorso -> destinazione")
 W() {
   printf '%s W\n' "$NG"
-  ls -ld "$@" 2>/dev/null
+  ls -ld $LSQ "$@" 2>/dev/null
   e 0
 }
 # H PERCORSO...: statvfs di molti mount con UN solo stat: righe "frsize blocchi disponibili inode liberi
@@ -184,20 +213,31 @@ W() {
 H() {
   if [ -n "$STATF" ]; then
     printf '%s H\n' "$NG"
-    stat -f -c '%S %b %a %c %d %f %n' "$@" 2>/dev/null
+    tmo 5 stat -f -c '%S %b %a %c %d %f %n' "$@" 2>/dev/null
     e 0
   else
     for ng_p; do s "$ng_p"; done
   fi
 }
+# h PATH: statvfs di UN filesystem di rete/FUSE con scadenza di 2 s (un mount appeso non deve bloccare l'agente);
+# rc 110 = scaduto o senza timeout(1)
+h() {
+  printf '%s S %s\n' "$NG" "$1"
+  if [ -z "$HAVE_TIMEOUT" ] || [ -z "$STATF" ]; then e 110; return; fi
+  tmo 2 stat -f -c '%S %b %a %c %d %f' "$1" 2>/dev/null
+  ng_r=$?
+  if [ $ng_r = 0 ]; then e 0
+  elif [ $ng_r = 124 ] || [ $ng_r = 137 ] || [ $ng_r = 143 ]; then e 110
+  else errc "$1"; e $?; fi
+}
 # s PATH: "frsize blocchi disponibili inode inode_liberi blocchi_liberi_totali" (con df: ultimo = totali - usati)
 s() {
   printf '%s S %s\n' "$NG" "$1"
   if [ -n "$STATF" ]; then
-    if stat -f -c '%S %b %a %c %d %f' "$1" 2>/dev/null; then e 0; else errc "$1"; e $?; fi
+    if tmo 5 stat -f -c '%S %b %a %c %d %f' "$1" 2>/dev/null; then e 0; else errc "$1"; e $?; fi
   else
     if [ -e "$1" ]; then
-      df -P -k "$1" 2>/dev/null | { IFS=' ' read -r ng_h; IFS=' ' read -r ng_a ng_b ng_c ng_d ng_rest
+      tmo 2 df -P -k "$1" 2>/dev/null | { IFS=' ' read -r ng_h; IFS=' ' read -r ng_a ng_b ng_c ng_d ng_rest
         [ -n "$ng_b" ] && printf '1024 %s %s 0 0 %s\n' "$ng_b" "$ng_d" "$((ng_b - ng_c))"; }
       e 0
     else e 2; fi
@@ -208,7 +248,9 @@ x() {
   ng_t=$1; shift
   printf '%s X\n' "$NG"
   ng_r=$( {
-    if [ -n "$HAVE_TIMEOUT" ]; then ( exec timeout -k 2 "$ng_t" "$@" ); else ( exec "$@" ); fi </dev/null
+    if [ -n "$TK" ]; then ( exec timeout -k 2 "$ng_t" "$@" )
+    elif [ -n "$HAVE_TIMEOUT" ]; then ( exec timeout "$ng_t" "$@" )
+    else ( exec "$@" ); fi </dev/null
     printf '\n%s' "$?" >&2
   } 2>&1 1>&3 )
   ng_c=${ng_r##*"$NL"}
@@ -219,7 +261,7 @@ x() {
 }
 
 ng_main() {
-  printf '%s READY %s%s%s\n' "$NG" "${STATC:-0}" "${STATF:-0}" "${HAVE_TIMEOUT:-0}"
+  printf '%s READY %s%s%s %s %s\n' "$NG" "${STATC:-0}" "${STATF:-0}" "${HAVE_TIMEOUT:-0}" "$PAGESIZE" "$CLKTCK"
   while read -r ng_line; do
     eval "$ng_line"
   done
