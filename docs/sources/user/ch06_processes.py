@@ -101,7 +101,9 @@ S_SIGNAL = p("A <b>signal</b> is a message that the system delivers to a process
         [ui("SIGUSR2") + " (12)", "A second one of the same kind."],
     ], "«TAB» — The signals ngtop can send") + \
     p("The result appears on the status line at the bottom: <code>SIGTERM sent to 4121 firefox</code> in green, or the reason of the "
-      "failure in red.")
+      "failure in red.") + \
+    note("The same works on a <b>remote machine</b> (" + rif("Actions on a remote machine") + "): the window names the machine, and the signal acts with the rights of the user "
+         "you log in as on the server, or as root with " + c("--sudo") + ".", "Remote.")
 
 S_SAFETY = p("A signal acts on the real system, and a mistake can be costly. ngtop adds several protections, so that you cannot hit the "
              "wrong target by accident.", lead=True) + \
@@ -137,6 +139,7 @@ S_NICE = p("Every process has a <b>nice</b> value from −20 to 19. The higher t
       "<code>nice of 4121 firefox (main thread): 0 → 1</code>.") + \
     p("Any user can raise the nice value of their own processes. To <b>lower</b> it (give more priority) you need root, and ngtop "
       "says <code>root is needed to lower the nice value</code>. At the limits the message is <code>already at the limit</code>.") + \
+    p("On a remote machine the same keys work, and lowering the value needs root there: start ngtop with " + c("--sudo") + " (" + rif("Acting as root: --sudo") + ").") + \
     p("The current nice and the priority are in the " + ui("General") + " tab, on the line " + ui("Priority") + ".")
 
 S_KEYSPROC = p("The keys of the Processes section, as the program reports them.", lead=True) + keys_table("Processes")

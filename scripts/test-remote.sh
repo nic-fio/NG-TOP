@@ -5,6 +5,8 @@
 # Uso: scripts/test-remote.sh [--measure] [cartella-log]
 #   (senza opzioni)  prove funzionali + tabella OK/ERRORE
 #   --measure        misure (byte, latenza, CPU server/locale) con intervallo 1 s, 30 s per container
+#   --actions        prove delle azioni remote (segnali, nice, servizi, --sudo con/senza password);
+#                    usa tests/remote.rs (cargo test, #[ignore]) e `--dump --sudo` sotto pty. Mai su macchine vere.
 # Variabili: NGTOP_BIN (default dist/ngtop), MEASURE_SECS (default 30), CONTAINERS="alpine debian systemd".
 # Chiave e ssh_config stanno in una cartella temporanea; ~/.ssh non viene mai toccato.
 set -u
@@ -12,12 +14,13 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 MODE=test
 [ "${1:-}" = "--measure" ] && { MODE=measure; shift; }
+[ "${1:-}" = "--actions" ] && { MODE=actions; shift; }
 LOGDIR="${1:-/tmp/ngtop-remote-logs}"
 BIN="${NGTOP_BIN:-$ROOT/dist/ngtop}"
 SECS="${MEASURE_SECS:-30}"
 CONTAINERS="${CONTAINERS:-alpine debian systemd}"
 CF="$ROOT/tests/fixtures/remote"
-[ -x "$BIN" ] || { echo "missing $BIN (run ./build.sh)"; exit 2; }
+[ -x "$BIN" ] || { [ "$MODE" = actions ] && echo "note: $BIN missing: the --dump --sudo cases are skipped" || { echo "missing $BIN (run ./build.sh)"; exit 2; }; }
 command -v podman >/dev/null || { echo "podman not found"; exit 2; }
 mkdir -p "$LOGDIR"
 TMP="$(mktemp -d /tmp/ngtop-remote.XXXXXX)"
@@ -39,12 +42,12 @@ declare -A RESULT
 ORDER=()
 
 # ssh_config: un Host per container; BatchMode per non bloccarsi mai su una domanda.
-add_host() { # nome porta
+add_host() { # alias porta [utente]
   cat >>"$TMP/ssh_config" <<CFG
 Host $1
   HostName 127.0.0.1
   Port $2
-  User tester
+  User ${3:-tester}
   IdentityFile $TMP/key
   IdentitiesOnly yes
   BatchMode yes
@@ -56,24 +59,33 @@ CFG
 }
 
 start_container() { # nome
-  local n="$1" img="localhost/ngtop-test-$1" name="ngtop-test-$1-$RUN_ID" extra=()
+  local n="$1" name="ngtop-test-$1-$RUN_ID" extra=() sum img
+  # il tag dell'immagine contiene la somma dei file: se cambia la Containerfile, si ricostruisce
+  sum="$(cat "$CF/Containerfile.$n" "$CF"/ngtop-test.service | cksum | cut -d' ' -f1)"
+  img="localhost/ngtop-test-$n:$sum"
   if ! podman image exists "$img"; then
     podman build -q -t "$img" -f "$CF/Containerfile.$n" "$CF" >"$LOGDIR/build-$n.log" 2>&1 || return 1
   fi
   [ "$n" = systemd ] && extra=(--systemd=always)
-  podman run -d --name "$name" "${extra[@]}" -p 127.0.0.1::22 \
+  # SYS_NICE: senza, nemmeno root puo' cambiare il nice dei processi di un altro utente nel container
+  podman run -d --name "$name" --cap-add SYS_NICE "${extra[@]}" -p 127.0.0.1::22 \
     -v "$TMP/key.pub":/tmp/authorized_keys.src:ro "$img" >/dev/null 2>"$LOGDIR/start-$n.log" || return 1
   STARTED+=("$name"); CID[$n]="$name"
   # authorized_keys: copiato con i permessi giusti (la mappatura rootless rende l'utente root il proprietario)
   local i
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    podman exec "$name" sh -c 'mkdir -p /home/tester/.ssh && cp /tmp/authorized_keys.src /home/tester/.ssh/authorized_keys \
-      && chown -R tester /home/tester/.ssh 2>/dev/null; chmod 700 /home/tester/.ssh; chmod 600 /home/tester/.ssh/authorized_keys' \
+    podman exec "$name" sh -c 'for u in tester sudon sudop sudotty; do
+      id "$u" >/dev/null 2>&1 || continue
+      mkdir -p /home/$u/.ssh && cp /tmp/authorized_keys.src /home/$u/.ssh/authorized_keys \
+      && chown -R $u /home/$u/.ssh 2>/dev/null; chmod 700 /home/$u/.ssh; chmod 600 /home/$u/.ssh/authorized_keys; done' \
       >/dev/null 2>&1 && break
     sleep 1
   done
   PORT[$n]="$(podman port "$name" 22/tcp | head -1 | sed 's/.*://')"
   add_host "ct-$n" "${PORT[$n]}"
+  add_host "ct-$n-nopw" "${PORT[$n]}" sudon
+  add_host "ct-$n-pw" "${PORT[$n]}" sudop
+  add_host "ct-$n-tty" "${PORT[$n]}" sudotty
   for i in $(seq 1 30); do
     ssh -F "$TMP/ssh_config" "ct-$n" true >/dev/null 2>&1 && return 0
     sleep 1
@@ -233,6 +245,118 @@ measure() { # nome
       n, 100*sh/(hz*secs), 100*sshd/(hz*secs), 100*ng/(hz*secs), 100*sc/(hz*secs), by/secs/1024 }'
 }
 
+
+# ---- azioni remote ------------------------------------------------------------------------
+NICE_LOWER=1
+slug() { echo "$1" | tr -c 'A-Za-z0-9\n' _ | tr -s _; }
+PWD_OK="pw-test-1"
+ACT_RES=()
+act_res() { # nome esito(0/1) dettaglio
+  if [ "$2" = 0 ]; then ACT_RES+=("OK     $1"); else ACT_RES+=("ERROR  $1: $3"); ACTRC=1; fi
+}
+TESTBIN=""
+find_testbin() {
+  local out="$LOGDIR/cargo-build-test.log"
+  ( cd "$ROOT" && PATH="$HOME/.cargo/bin:$PATH" cargo test --test remote --no-run ) >"$out" 2>&1 || return 1
+  TESTBIN="$(grep -ao 'Executable tests/remote.rs (.*)' "$out" | sed 's/.*(\(.*\))/\1/' | head -1)"
+  [ -n "$TESTBIN" ] && TESTBIN="$ROOT/$TESTBIN"
+  [ -x "$TESTBIN" ]
+}
+# Esegue un test #[ignore] di tests/remote.rs. pwd non vuoto = sotto pty, la password viene scritta dopo 5 s.
+e2e() { # nome host sudo(0/1) filtro unit foreign pwd
+  local name="$1" host="$2" sudo="$3" filter="$4" unit="$5" fpid="$6" pw="${7:-}" log="$LOGDIR/actions-$(slug "$1").log" rc
+  local envs=(NGTOP_E2E_NICE_LOWER="${NICE_LOWER:-1}" NGTOP_E2E_HOST="$host" NGTOP_E2E_SUDO="$sudo" NGTOP_E2E_UNIT="$unit" NGTOP_E2E_FOREIGN_PID="$fpid")
+  if [ -n "$pw" ]; then
+    (sleep 5; printf '%s\n' "$pw") | env "${envs[@]}" timeout 120 script -qec "$TESTBIN --ignored $filter --test-threads=1 --nocapture" /dev/null >"$log" 2>&1
+  else
+    env "${envs[@]}" timeout 120 "$TESTBIN" --ignored "$filter" --test-threads=1 --nocapture >"$log" 2>&1 </dev/null
+  fi
+  rc=$?
+  if [ $rc -eq 0 ] && grep -aq '1 passed' "$log"; then act_res "$name" 0
+  else act_res "$name" 1 "rc=$rc: $(grep -aE 'panicked|assert|left:|right:|Error|error' "$log" | head -3 | tr '\n' ' ' | cut -c1-300) (see $log)"; fi
+}
+foreign_sleep() { # nome container: sleep di tester (un altro utente) avviato nel container
+  podman exec -u tester "${CID[$1]}" sh -c 'sleep 601 </dev/null >/dev/null 2>&1 & echo $!' 2>/dev/null
+}
+wait_systemd() { # nome container
+  local i
+  for i in $(seq 1 40); do
+    podman exec "${CID[$1]}" sh -c 'systemctl is-system-running 2>&1 | grep -Eq "running|degraded" && systemctl is-active ngtop-test.service >/dev/null' 2>/dev/null && return 0
+    sleep 1
+  done
+  return 1
+}
+# ngtop --dump --sudo sotto pty, con la password data. Risultato in $log, rc in $DRC.
+dump_sudo() { # nome host password
+  local log="$LOGDIR/actions-$(slug "$1").log"
+  (sleep 5; printf '%s\n' "$3") | timeout 90 script -qec "stty cols 150 rows 50; $BIN --dump --sudo $2" /dev/null >"$log" 2>&1
+  DRC=$?
+}
+sudo_log_clean() { # nome container: nessuna riga dell'agente nel log di sudo / auth / journal del server
+  local out
+  out="$(podman exec "${CID[$1]}" sh -c 'cat /var/log/sudo.log /var/log/auth.log 2>/dev/null; journalctl --no-pager 2>/dev/null' 2>/dev/null)"
+  ! grep -aEq 'HAVE_TIMEOUT|PAGESIZE|CLKTCK|exec 3>&1|^NG=|Agente di ngtop' <<<"$out"
+}
+sudo_pw_leak() { # nome container password: la password non compare nei log del server
+  ! podman exec "${CID[$1]}" sh -c 'cat /var/log/sudo.log /var/log/auth.log 2>/dev/null; journalctl --no-pager 2>/dev/null' 2>/dev/null | grep -aqF -- "$2"
+}
+
+actions() { # nome
+  local n="$1" fp unit="" cx=1
+  [ "$n" = systemd ] && { unit=ngtop-test.service; wait_systemd "$n" || { act_res "$n: systemd up" 1 "container systemd not ready"; return; }; }
+  # il nice si puo' abbassare (anche da root) solo se il kernel lo permette: in podman rootless no
+  podman exec "${CID[$n]}" sh -c '[ -z "$(nice -n -1 true 2>&1)" ]' >/dev/null 2>&1 && NICE_LOWER=1 || NICE_LOWER=0
+  fp="$(foreign_sleep "$n")"
+  # utente senza sudo
+  e2e "$n: process actions, user tester (no sudo)" "ct-$n" 0 e2e_process_signal "" ""
+  e2e "$n: foreign process refused (EPERM), sudon without --sudo" "ct-$n-nopw" 0 e2e_process_of_another_user "" "$fp"
+  [ -n "$unit" ] && e2e "$n: services without --sudo: 'needs root' text" "ct-$n" 0 e2e_service_actions "$unit" ""
+  # utente con sudo NOPASSWD
+  e2e "$n: process actions, sudon without --sudo" "ct-$n-nopw" 0 e2e_process_signal "" ""
+  e2e "$n: process actions, sudon --sudo (NOPASSWD)" "ct-$n-nopw" 1 e2e_process_signal "" ""
+  [ -n "$unit" ] && e2e "$n: services without --sudo (sudon)" "ct-$n-nopw" 0 e2e_service_actions "$unit" ""
+  [ -n "$unit" ] && e2e "$n: services --sudo (NOPASSWD): start/stop/restart/enable/disable" "ct-$n-nopw" 1 e2e_service_actions "$unit" ""
+  fp="$(foreign_sleep "$n")"
+  e2e "$n: foreign process killed with --sudo (NOPASSWD)" "ct-$n-nopw" 1 e2e_process_of_another_user "" "$fp"
+  # utente con sudo a password (prompt su pty)
+  e2e "$n: process actions, sudop --sudo (password)" "ct-$n-pw" 1 e2e_process_signal "" "" "$PWD_OK"
+  [ -n "$unit" ] && e2e "$n: services --sudo (password)" "ct-$n-pw" 1 e2e_service_actions "$unit" "" "$PWD_OK"
+  # password sbagliata: errore chiaro, nessuna riga dell'agente nei log, password non in chiaro
+  if [ -x "$BIN" ] && "$BIN" --help 2>&1 | grep -q -- '--sudo'; then
+    local bad="wrongpw-Zq7" log="$LOGDIR/actions-$(slug "$n: wrong password").log" m=""
+    dump_sudo "$n: wrong password" "ct-$n-pw" "$bad"
+    [ $DRC -ne 0 ] || m+="exit 0; "
+    sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$log" | grep -aqi 'wrong password' || m+="no 'wrong password' text; "
+    grep -aqF -- "$bad" <(sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$log" | tr -d '\r' | grep -av 'password for') && m+="typed password echoed; "
+    nopanic "$log" || m+="panic; "
+    sleep 2
+    sudo_log_clean "$n" || m+="agent script lines found in the server's sudo/auth log or journal; "
+    sudo_pw_leak "$n" "$bad" || m+="password found in the server's logs; "
+    podman exec "${CID[$n]}" sh -c 'ps -eo user,args | grep -E "^sudop .*(sudo|sh)" | grep -v grep' 2>/dev/null | grep -aq . && m+="leftover sudo/sh session of sudop on the server; "
+    [ -z "$m" ]; act_res "$n: wrong sudo password" $? "$m(see $log)"
+    # password giusta: dump come root
+    dump_sudo "$n: dump --sudo ok" "ct-$n-pw" "$PWD_OK"
+    log="$LOGDIR/actions-$(slug "$n: dump --sudo ok").log"; m=""
+    [ $DRC -eq 0 ] || m+="rc=$DRC; "
+    grep -aEq '^ *1 +root' "$log" || m+="no pid 1 line; "
+    grep -aqF -- "$PWD_OK" <(tr -d '\r' <"$log" | grep -av 'password for') && m+="password in output; "
+    sudo_pw_leak "$n" "$PWD_OK" || m+="password found in the server's logs; "
+    [ -z "$m" ]; act_res "$n: dump --sudo with correct password" $? "$m(see $log)"
+    # utente senza diritti sudo
+    dump_sudo "$n: not allowed" "ct-$n" "whatever"
+    log="$LOGDIR/actions-$(slug "$n: not allowed").log"
+    [ $DRC -ne 0 ] && sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$log" | grep -aEqi 'not allowed|wrong password|not in the sudoers' ; act_res "$n: user without sudo rights: clear error" $? "rc=$DRC, text: $(tr -d '\r' <"$log" | tail -c 200 | tr '\n' ' ') "
+    # requiretty
+    if [ "$n" = debian ]; then
+      dump_sudo "$n: requiretty" "ct-$n-tty" "x"
+      log="$LOGDIR/actions-$(slug "$n: requiretty").log"
+      [ $DRC -ne 0 ] && sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$log" | grep -aEqi 'requiretty|terminal is required'; act_res "$n: requiretty: clear error" $? "rc=$DRC, text: $(tr -d '\r' <"$log" | tail -c 200 | tr '\n' ' ') "
+    fi
+  else
+    act_res "$n: --dump --sudo cases" 1 "ngtop binary missing or without --sudo (run ./build.sh)"
+  fi
+}
+
 # ---- main ---------------------------------------------------------------------------------
 echo "images/containers: $CONTAINERS (logs in $LOGDIR)"
 READY=()
@@ -246,6 +370,17 @@ if [ "$MODE" = measure ]; then
   for n in "${READY[@]}"; do measure "$n"; done
   for n in "${ORDER[@]}"; do [ -n "${RESULT[$n]:-}" ] && echo "$n: ${RESULT[$n]}"; done
   exit 0
+fi
+
+if [ "$MODE" = actions ]; then
+  ACTRC=0
+  find_testbin || { echo "cannot build tests/remote.rs (see $LOGDIR/cargo-build-test.log)"; exit 2; }
+  echo "--- remote actions (test binary: $TESTBIN) ---"
+  for n in "${READY[@]}"; do actions "$n"; done
+  for n in "${ORDER[@]}"; do [ -n "${RESULT[$n]:-}" ] && echo "$n: ${RESULT[$n]}" && ACTRC=1; done
+  printf '%s\n' "${ACT_RES[@]}"
+  echo "logs in $LOGDIR"
+  exit $ACTRC
 fi
 
 declare -A STOP

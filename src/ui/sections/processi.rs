@@ -5,6 +5,7 @@
 //! Contiene anche il dialogo "Invia segnale" (comune a Panoramica e Processi).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
@@ -12,15 +13,12 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use rustix::io::Errno;
-use rustix::process::{
-    Pid, PidfdFlags, Signal, kill_process, pidfd_open, pidfd_send_signal, setpriority_process,
-};
 
 use super::panoramica::{dim, fg, pct_color, span};
 use crate::collect::System;
 use crate::collect::procdetail::{DetailCollector, DetailTab, ProcDetail, policy_name};
 use crate::collect::process::{Process, SortKey};
+use crate::source::actions::{NoActions, ProcActions};
 use crate::ui::app::{App, HISTORY_LEN};
 use crate::ui::fmt;
 use crate::ui::history::History;
@@ -96,86 +94,8 @@ pub const SIGNALS: [Sig; 8] = [
     },
 ];
 
-/// Funzione che invia un segnale (sostituibile nei test).
-/// Argomenti: radice di /proc, pid, avvio atteso (tick), segnale.
-pub type KillFn = fn(&std::path::Path, u32, u64, Sig) -> Result<(), String>;
-
-fn errno_text(e: Errno) -> String {
-    match e {
-        Errno::PERM => "permission denied (EPERM)".to_string(),
-        Errno::ACCESS => "access denied (EACCES)".to_string(),
-        Errno::SRCH => "the process no longer exists (ESRCH)".to_string(),
-        other => format!("error {}", other.raw_os_error()),
-    }
-}
-
-fn to_pid(pid: u32) -> Option<Pid> {
-    i32::try_from(pid).ok().and_then(Pid::from_raw)
-}
-
-/// Invio reale con rustix (nessuna libc C). Ordine senza finestre: pidfd_open → si rilegge
-/// l'avvio da stat e lo si confronta con quello atteso → pidfd_send_signal (il pidfd resta
-/// legato a quel processo anche se il pid viene riusato). Senza pidfd (kernel < 5.3 o permessi):
-/// verifica + kill.
-pub fn send_signal(
-    proc_root: &std::path::Path,
-    pid: u32,
-    expect: u64,
-    sig: Sig,
-) -> Result<(), String> {
-    let p = to_pid(pid).ok_or("invalid pid")?;
-    let s = Signal::from_named_raw(sig.num).ok_or("invalid signal")?;
-    let changed = || Err("the pid now belongs to another process (reused)".to_string());
-    match pidfd_open(p, PidfdFlags::empty()) {
-        Ok(fd) => {
-            if live_start(proc_root, pid) != Some(expect) {
-                return changed();
-            }
-            match pidfd_send_signal(&fd, s) {
-                Ok(()) => Ok(()),
-                Err(Errno::SRCH) => Err(errno_text(Errno::SRCH)),
-                Err(_) => kill_process(p, s).map_err(errno_text),
-            }
-        }
-        Err(Errno::SRCH) => Err(errno_text(Errno::SRCH)),
-        Err(_) => {
-            if live_start(proc_root, pid) != Some(expect) {
-                return changed();
-            }
-            kill_process(p, s).map_err(errno_text)
-        }
-    }
-}
-
-/// Avvio (starttime di stat, in tick) del processo vivo: serve a riconoscere un pid riusato.
-pub type StartFn = fn(&std::path::Path, u32) -> Option<u64>;
-
-pub fn live_start(proc_root: &std::path::Path, pid: u32) -> Option<u64> {
-    std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat"))
-        .ok()
-        .and_then(|t| crate::collect::process::parse_stat(&t))
-        .map(|st| st.starttime)
-}
-
 /// Oltre questa soglia il sottoalbero richiede una seconda conferma.
 const BIG_SUBTREE: usize = 50;
-
-/// Imposta il nice di un processo.
-pub fn set_nice(pid: u32, nice: i32) -> Result<(), String> {
-    let p = to_pid(pid).ok_or("invalid pid")?;
-    setpriority_process(Some(p), nice).map_err(errno_text)
-}
-
-/// Motivo per cui un pid non va colpito alla leggera (init, ngtop stesso).
-pub fn protected(pid: u32) -> Option<&'static str> {
-    if pid == 1 {
-        Some("PID 1 (init)")
-    } else if pid == std::process::id() {
-        Some("ngtop itself")
-    } else {
-        None
-    }
-}
 
 /// Il pid e tutti i suoi discendenti (preordine, radice per prima).
 pub fn subtree_pids(rows: &[Process], root: u32) -> Vec<u32> {
@@ -265,22 +185,52 @@ pub struct SignalDialog {
     pub foreign: usize,
     /// Seconda conferma già data (sottoalbero grande o di altri utenti).
     pub armed: bool,
+    /// Pid del sottoalbero da non colpire alla leggera, con il motivo (chiesto alle azioni).
+    pub prot: Vec<(u32, &'static str)>,
+    /// Macchina remota su cui si agisce (destinazione), se non è questa.
+    pub machine: Option<String>,
+    /// Sessione sul server all'apertura (`ProcActions::generation`; 0 in locale).
+    pub generation: u64,
+}
+
+/// Inizio del testo con cui il trasporto dichiara un esito incerto (connessione caduta).
+const UNKNOWN_OUTCOME: &str = "connection lost: outcome unknown";
+
+/// Dove si agisce, per contare i processi "di altri utenti" e nominare la macchina.
+pub struct Origin<'a> {
+    pub target: &'a str,
+    /// Uid con cui si agisce sul server, se noto (ignoto: ogni processo conta come di altri).
+    pub uid: Option<u32>,
 }
 
 impl SignalDialog {
-    pub fn new(p: &Process, rows: &[Process]) -> Self {
+    pub fn new(
+        p: &Process,
+        rows: &[Process],
+        act: &dyn ProcActions,
+        origin: Option<&Origin>,
+    ) -> Self {
         let tree_pids = subtree_pids(rows, p.pid);
         let in_tree: HashSet<u32> = tree_pids.iter().copied().collect();
         let me = rustix::process::geteuid().as_raw();
+        // In locale si confronta l'uid; in remoto quello del server (ignoto: tutti di altri, prudente).
+        let foreign_of = |q: &Process| match origin {
+            None => q.uid != me,
+            Some(o) => o.uid != Some(q.uid),
+        };
         let mut tree_starts = vec![(p.pid, p.start_ticks)];
         let mut foreign = 0;
         for q in rows.iter().filter(|q| q.pid != p.pid) {
             if in_tree.contains(&q.pid) {
                 tree_starts.push((q.pid, q.start_ticks));
-                foreign += usize::from(q.uid != me);
+                foreign += usize::from(foreign_of(q));
             }
         }
-        foreign += usize::from(p.uid != me);
+        foreign += usize::from(foreign_of(p));
+        let prot = tree_pids
+            .iter()
+            .filter_map(|&t| act.protected(t).map(|why| (t, why)))
+            .collect();
         SignalDialog {
             pid: p.pid,
             name: p.name.clone(),
@@ -291,7 +241,14 @@ impl SignalDialog {
             tree_starts,
             foreign,
             armed: false,
+            prot,
+            machine: origin.map(|o| o.target.to_string()),
+            generation: act.generation(),
         }
+    }
+
+    fn protected(&self, pid: u32) -> Option<&'static str> {
+        self.prot.iter().find(|&&(p, _)| p == pid).map(|&(_, w)| w)
     }
 
     /// Il sottoalbero di init (1) o kthreadd (2) è praticamente tutto il sistema: vietato.
@@ -317,7 +274,7 @@ impl SignalDialog {
             self.tree_pids
                 .iter()
                 .copied()
-                .filter(|&p| protected(p).is_none())
+                .filter(|&p| self.protected(p).is_none())
                 .collect()
         } else if self.pid == 1 {
             Vec::new()
@@ -340,7 +297,7 @@ impl SignalDialog {
             ));
         }
         for p in scope {
-            match protected(p) {
+            match self.protected(p) {
                 Some(who) if p == 1 => w.push(format!("WARNING: {who} will not be touched")),
                 Some(who) if self.subtree => {
                     w.push(format!("WARNING: {who} (PID {p}) will be skipped"));
@@ -365,6 +322,9 @@ impl SignalDialog {
             },
             crate::ui::widgets::clip(&self.cmdline, 56),
         ];
+        if let Some(m) = &self.machine {
+            l.push(format!("On: {m}"));
+        }
         for (i, s) in SIGNALS.iter().enumerate() {
             let mark = if i == self.sig { "▸(•)" } else { "  ( )" };
             l.push(format!("{mark} {:>2} {:<8} {}", s.num, s.name, s.desc));
@@ -411,14 +371,23 @@ impl SignalDialog {
 /// Apre il dialogo sul processo selezionato (F9 / k); senza processi non fa nulla.
 pub fn open_dialog(app: &mut App) {
     if let Some(p) = app.selected_process() {
-        app.dialog = Some(SignalDialog::new(p, &app.rows));
+        app.dialog = Some(dialog_for(app, p));
     }
+}
+
+/// Dialogo per `p`, con le azioni e (in remoto) la macchina dell'app.
+fn dialog_for(app: &App, p: &Process) -> SignalDialog {
+    let origin = app.remote.then(|| Origin {
+        target: &app.remote_target,
+        uid: app.remote_uid,
+    });
+    SignalDialog::new(p, &app.rows, &*app.proc.act, origin.as_ref())
 }
 
 /// Apre il dialogo su un pid noto (es. la connessione scelta in Rete e dischi).
 pub fn open_dialog_pid(app: &mut App, pid: u32) {
     if let Some(p) = app.rows.iter().find(|p| p.pid == pid) {
-        app.dialog = Some(SignalDialog::new(p, &app.rows));
+        app.dialog = Some(dialog_for(app, p));
     }
 }
 
@@ -464,9 +433,13 @@ fn name_of(rows: &[Process], pid: u32) -> String {
 /// Invia il segnale scelto ai bersagli, dopo aver riverificato che siano ancora gli stessi
 /// processi (pid + avvio); riassume l'esito nella riga di stato.
 fn send_dialog(app: &mut App, d: &SignalDialog) {
-    // Difesa in profondità: in remoto un pid è di un'altra macchina, mai agire su quello locale.
-    if app.remote {
-        app.proc.set_status(crate::ui::app::REMOTE_NA.into(), false);
+    // Riconnessione (o server riavviato) dopo l'apertura: pid e protezioni non valgono più.
+    // Sessione letta dal vivo: nessun ritardo di aggiornamento.
+    if d.generation != app.proc.act.generation() {
+        app.proc.set_status(
+            "the connection changed since the dialog was opened: nothing sent".into(),
+            false,
+        );
         return;
     }
     let sig = d.signal();
@@ -477,11 +450,26 @@ fn send_dialog(app: &mut App, d: &SignalDialog) {
         return;
     }
     let stored: HashMap<u32, u64> = d.tree_starts.iter().copied().collect();
-    let (root, start_fn) = (app.proc.proc_root.clone(), app.proc.start_fn);
+    let act = app.proc.act.clone();
+    let cand: Vec<(u32, u64)> = if d.subtree {
+        verified_subtree(&app.rows, d.pid, &stored)
+            .into_iter()
+            .filter(|&(p, _)| act.protected(p).is_none())
+            .collect()
+    } else {
+        stored
+            .get(&d.pid)
+            .map(|&e| vec![(d.pid, e)])
+            .unwrap_or_default()
+    };
+    // Una sola lettura degli avvii: radice per prima, poi i candidati.
+    let mut ask = vec![d.pid];
+    ask.extend(cand.iter().map(|&(p, _)| p));
+    let live = act.live_starts(&ask);
     // La radice si verifica per prima: se il pid è stato riusato non si invia nulla.
     if stored
         .get(&d.pid)
-        .is_none_or(|&e| start_fn(&root, d.pid) != Some(e))
+        .is_none_or(|&e| live.first().copied().flatten() != Some(e))
     {
         app.proc.set_status(
             format!("process {} has exited, no signal sent", d.pid),
@@ -489,17 +477,11 @@ fn send_dialog(app: &mut App, d: &SignalDialog) {
         );
         return;
     }
-    let cand: Vec<(u32, u64)> = if d.subtree {
-        verified_subtree(&app.rows, d.pid, &stored)
-            .into_iter()
-            .filter(|&(p, _)| protected(p).is_none())
-            .collect()
-    } else {
-        vec![(d.pid, stored[&d.pid])]
-    };
     let cand: Vec<(u32, u64)> = cand
         .into_iter()
-        .filter(|&(pid, e)| start_fn(&root, pid) == Some(e))
+        .zip(live.into_iter().skip(1))
+        .filter(|&((_, e), l)| l == Some(e))
+        .map(|(c, _)| c)
         .collect();
     let targets: Vec<u32> = cand.iter().map(|&(p, _)| p).collect();
     let skipped = opened.iter().filter(|p| !targets.contains(p)).count();
@@ -515,20 +497,28 @@ fn send_dialog(app: &mut App, d: &SignalDialog) {
         );
         return;
     }
-    let kill = app.proc.kill;
     let (mut ok, mut fail) = (0usize, 0usize);
     let mut first_err: Option<(u32, String)> = None;
-    for &(pid, expect) in &cand {
-        match kill(&root, pid, expect, sig) {
+    let mut unknown: Option<String> = None;
+    // Una sola chiamata per tutto il sottoalbero.
+    for (&(pid, _), res) in cand.iter().zip(act.signal(&cand, sig.num)) {
+        match res {
             Ok(()) => ok += 1,
             Err(e) => {
                 fail += 1;
+                if e.starts_with(UNKNOWN_OUTCOME) {
+                    unknown.get_or_insert_with(|| e.clone());
+                }
                 first_err.get_or_insert((pid, e));
             }
         }
     }
     let label = |pid: u32| format!("{} {}", pid, name_of(&app.rows, pid).trim().to_owned());
     let (text, good) = match (targets.len(), first_err) {
+        _ if unknown.is_some() => (
+            format!("{}: {}", sig.name, unknown.unwrap_or_default()),
+            false,
+        ),
         (1, None) => (format!("{} sent to {}", sig.name, label(targets[0])), true),
         (1, Some((pid, e))) => (format!("{} to {}: {e}", sig.name, label(pid)), false),
         (n, None) => (
@@ -555,13 +545,9 @@ fn send_dialog(app: &mut App, d: &SignalDialog) {
 /// F7/F8: nice -1 / +1 sul processo selezionato. Come htop, cambia solo il thread principale
 /// (setpriority su un pid agisce sul thread con tid = pid).
 pub fn change_nice(app: &mut App, delta: i32) {
-    if app.remote {
-        app.proc.set_status(crate::ui::app::REMOTE_NA.into(), false);
-        return;
-    }
-    let Some((pid, name, cur)) = app
+    let Some((pid, name, cur, start)) = app
         .selected_process()
-        .map(|p| (p.pid, p.name.clone(), p.nice as i32))
+        .map(|p| (p.pid, p.name.clone(), p.nice as i32, p.start_ticks))
     else {
         return;
     };
@@ -573,13 +559,15 @@ pub fn change_nice(app: &mut App, delta: i32) {
         );
         return;
     }
-    match set_nice(pid, new) {
+    // L'avvio letto con la lista impedisce di colpire un pid riusato nel frattempo.
+    match app.proc.act.set_nice(pid, start, new) {
         Ok(()) => app.proc.set_status(
             format!("nice of {pid} {name} (main thread): {cur} → {new}"),
             true,
         ),
         Err(e) => {
-            let why = if delta < 0 && e.contains("EACCES") || e.contains("EPERM") && delta < 0 {
+            let denied = e.contains("EACCES") || e.contains("EPERM");
+            let why = if delta < 0 && denied && !app.remote_root {
                 "root is needed to lower the nice value".to_string()
             } else {
                 e
@@ -656,10 +644,8 @@ pub struct ProcState {
     /// Scorrimento del contenuto della scheda.
     pub scroll: usize,
     status: Option<Status>,
-    pub kill: KillFn,
-    /// Lettura dell'avvio di un pid vivo (sostituibile nei test) e radice di /proc.
-    pub start_fn: StartFn,
-    pub proc_root: std::path::PathBuf,
+    /// Segnali e nice sul sistema osservato (locale, remoto o finto nei test).
+    pub act: Arc<dyn ProcActions>,
     inited: bool,
     /// Zone cliccabili dall'ultimo disegno: (x, larghezza, y, scheda).
     tab_hits: Vec<(u16, u16, u16, DetailTab)>,
@@ -679,9 +665,8 @@ impl ProcState {
             hist_pid: None,
             scroll: 0,
             status: None,
-            kill: send_signal,
-            start_fn: live_start,
-            proc_root: std::path::PathBuf::from("/proc"),
+            // Mai azioni locali per default: le assegna chi crea l'app da `sys.roots.act`.
+            act: Arc::new(NoActions),
             inited: false,
             tab_hits: Vec::new(),
             detail_rect: None,
@@ -717,7 +702,6 @@ impl ProcState {
             .last_read
             .map_or(0.0, |t| now.duration_since(t).as_secs_f64());
         self.last_read = Some(now);
-        self.proc_root.clone_from(&sys.roots.proc);
         self.detail = Some(
             self.collector
                 .refresh(&sys.roots, pid, self.tab, sys.clock_ticks, dt),
@@ -1417,15 +1401,81 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &mut App, sys: &System) {
     }
 }
 
+/// Azioni finte per i test: registrano i segnali e il nice, niente tocca processi veri.
+#[cfg(test)]
+#[derive(Default)]
+pub struct FakeActions {
+    pub sent: std::sync::Mutex<Vec<(u32, i32)>>,
+    pub nices: std::sync::Mutex<Vec<(u32, u64, i32)>>,
+    /// Avvio dei processi vivi (predefinito: tutti vivi con avvio 0).
+    pub live: Option<fn(u32) -> Option<u64>>,
+    /// Pid per cui il segnale fallisce con EPERM.
+    pub fail_pid: Option<u32>,
+    pub nice_err: Option<String>,
+    /// Errore per ogni segnale (prevale su `fail_pid`).
+    pub sig_err: Option<String>,
+    /// Sessione corrente (`ProcActions::generation`).
+    pub session: std::sync::atomic::AtomicU64,
+    /// Pid che diventano protetti solo dopo `protect_now`.
+    pub late_prot: std::sync::Mutex<Vec<u32>>,
+    pub starts_calls: std::sync::atomic::AtomicUsize,
+    pub signal_calls: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(test)]
+impl ProcActions for FakeActions {
+    fn live_starts(&self, pids: &[u32]) -> Vec<Option<u64>> {
+        self.starts_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        pids.iter()
+            .map(|&p| self.live.map_or(Some(0), |f| f(p)))
+            .collect()
+    }
+    fn signal(&self, targets: &[(u32, u64)], sig: i32) -> Vec<Result<(), String>> {
+        self.signal_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        targets
+            .iter()
+            .map(|&(pid, _)| {
+                if let Some(e) = &self.sig_err {
+                    return Err(e.clone());
+                }
+                if Some(pid) == self.fail_pid {
+                    return Err("permission denied (EPERM)".to_string());
+                }
+                self.sent.lock().unwrap().push((pid, sig));
+                Ok(())
+            })
+            .collect()
+    }
+    fn set_nice(&self, pid: u32, expect: u64, nice: i32) -> Result<(), String> {
+        if let Some(e) = &self.nice_err {
+            return Err(e.clone());
+        }
+        self.nices.lock().unwrap().push((pid, expect, nice));
+        Ok(())
+    }
+    fn protected(&self, pid: u32) -> Option<&'static str> {
+        if self.late_prot.lock().unwrap().contains(&pid) {
+            return Some("a late-protected process");
+        }
+        crate::source::actions::protected(pid)
+    }
+    fn generation(&self) -> u64 {
+        self.session.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::collect::Roots;
+    use crate::source::actions::LocalActions;
     use crate::ui::app::Section;
     use crate::ui::snapshot::{render_app, to_text};
     use crossterm::event::{KeyEventKind, KeyEventState, KeyModifiers};
     use std::path::PathBuf;
-    use std::sync::Mutex;
+    use std::sync::atomic::Ordering;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent {
@@ -1522,31 +1572,29 @@ mod tests {
         assert!(a.proc.collapsed.is_empty());
     }
 
-    static SENT: Mutex<Vec<(u32, i32)>> = Mutex::new(Vec::new());
-
-    fn fake_start(_: &std::path::Path, _: u32) -> Option<u64> {
-        Some(0)
+    fn fake(f: FakeActions) -> (Arc<FakeActions>, Arc<dyn ProcActions>) {
+        let a = Arc::new(f);
+        (a.clone(), a)
     }
 
-    fn fake_kill(_: &std::path::Path, pid: u32, _: u64, sig: Sig) -> Result<(), String> {
-        if pid == 13 {
-            return Err("permission denied (EPERM)".into());
-        }
-        SENT.lock().unwrap().push((pid, sig.num));
-        Ok(())
+    fn select_pid(a: &mut App, pid: u32) {
+        let pos = a
+            .view
+            .iter()
+            .position(|(i, _)| a.rows[*i].pid == pid)
+            .unwrap();
+        a.select_index(pos);
     }
 
     #[test]
     fn dialogo_selezione_e_invio() {
         let mut a = app_albero();
-        a.proc.kill = fake_kill;
-        a.proc.start_fn = fake_start;
-        let pos = a
-            .view
-            .iter()
-            .position(|(i, _)| a.rows[*i].pid == 10)
-            .unwrap();
-        a.select_index(pos);
+        let (f, act) = fake(FakeActions {
+            fail_pid: Some(13),
+            ..FakeActions::default()
+        });
+        a.proc.act = act;
+        select_pid(&mut a, 10);
         a.on_key(key(KeyCode::F(9)));
         let d = a.dialog.clone().unwrap();
         assert_eq!((d.pid, d.signal().name), (10, "SIGTERM"));
@@ -1561,32 +1609,23 @@ mod tests {
         assert_eq!(a.dialog.as_ref().unwrap().signal().name, "SIGUSR2");
         a.on_key(key(KeyCode::Esc));
         assert!(a.dialog.is_none());
-        assert!(SENT.lock().unwrap().is_empty() || SENT.lock().unwrap().iter().all(|x| x.0 != 10));
+        assert!(f.sent.lock().unwrap().is_empty());
 
         // Invio su un solo processo
-        SENT.lock().unwrap().clear();
-        let pos = a
-            .view
-            .iter()
-            .position(|(i, _)| a.rows[*i].pid == 11)
-            .unwrap();
-        a.select_index(pos);
+        select_pid(&mut a, 11);
         a.on_key(key(KeyCode::F(9)));
         a.on_key(key(KeyCode::Enter));
         assert!(a.dialog.is_none());
-        assert_eq!(*SENT.lock().unwrap(), [(11, 15)]);
+        assert_eq!(*f.sent.lock().unwrap(), [(11, 15)]);
         let (t, ok) = a.proc.status_text().unwrap();
         assert!(ok);
         assert_eq!(t, "SIGTERM sent to 11 a");
 
-        // sottoalbero con un errore sul 13
-        SENT.lock().unwrap().clear();
-        let pos = a
-            .view
-            .iter()
-            .position(|(i, _)| a.rows[*i].pid == 10)
-            .unwrap();
-        a.select_index(pos);
+        // sottoalbero con un errore sul 13; una sola chiamata per le letture e una per l'invio
+        f.sent.lock().unwrap().clear();
+        f.starts_calls.store(0, Ordering::SeqCst);
+        f.signal_calls.store(0, Ordering::SeqCst);
+        select_pid(&mut a, 10);
         a.on_key(key(KeyCode::F(9)));
         a.on_key(key(KeyCode::Char(' ')));
         assert!(
@@ -1602,7 +1641,9 @@ mod tests {
         if a.dialog.is_some() {
             a.on_key(key(KeyCode::Enter));
         }
-        assert_eq!(*SENT.lock().unwrap(), [(10, 15), (11, 15), (12, 15)]);
+        assert_eq!(*f.sent.lock().unwrap(), [(10, 15), (11, 15), (12, 15)]);
+        assert_eq!(f.starts_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(f.signal_calls.load(Ordering::SeqCst), 1);
         let (t, ok) = a.proc.status_text().unwrap();
         assert!(!ok);
         assert!(t.contains("3 sent, 1 errors") && t.contains("EPERM"), "{t}");
@@ -1615,26 +1656,15 @@ mod tests {
         let mut a = App::new((120, 40), "h".into());
         a.tree_proc = true;
         a.set_processes(r);
-        a.proc.kill = fake_kill;
-        a.proc.start_fn = fake_start;
-        SENT.lock().unwrap().clear();
-        let pos = a
-            .view
-            .iter()
-            .position(|(i, _)| a.rows[*i].pid == 1)
-            .unwrap();
-        a.select_index(pos);
+        let (f, act) = fake(FakeActions::default());
+        a.proc.act = act;
+        select_pid(&mut a, 1);
         a.on_key(key(KeyCode::F(9)));
         let d = a.dialog.clone().unwrap();
         assert!(d.warnings().iter().any(|w| w.contains("PID 1")));
         assert!(d.targets().is_empty());
         a.on_key(key(KeyCode::Esc));
-        let pos = a
-            .view
-            .iter()
-            .position(|(i, _)| a.rows[*i].pid == 10)
-            .unwrap();
-        a.select_index(pos);
+        select_pid(&mut a, 10);
         a.on_key(key(KeyCode::F(9)));
         a.on_key(key(KeyCode::Char(' ')));
         let d = a.dialog.clone().unwrap();
@@ -1646,18 +1676,14 @@ mod tests {
             a.on_key(key(KeyCode::Enter));
         }
         assert!(
-            SENT.lock()
+            f.sent
+                .lock()
                 .unwrap()
                 .iter()
                 .all(|x| x.0 != 1 && x.0 != std::process::id())
         );
         // diretto su ngtop: avviso ma consentito
-        let pos = a
-            .view
-            .iter()
-            .position(|(i, _)| a.rows[*i].pid == std::process::id())
-            .unwrap();
-        a.select_index(pos);
+        select_pid(&mut a, std::process::id());
         a.on_key(key(KeyCode::F(9)));
         let d = a.dialog.clone().unwrap();
         assert!(
@@ -1672,32 +1698,6 @@ mod tests {
         assert!(b.dialog.is_none());
     }
 
-    static CALLS_A: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-    static CALLS_B: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-    static CALLS_C: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-
-    fn kill_a(_: &std::path::Path, pid: u32, _: u64, _: Sig) -> Result<(), String> {
-        CALLS_A.lock().unwrap().push(pid);
-        Ok(())
-    }
-    fn kill_b(_: &std::path::Path, pid: u32, _: u64, _: Sig) -> Result<(), String> {
-        CALLS_B.lock().unwrap().push(pid);
-        Ok(())
-    }
-    fn kill_c(_: &std::path::Path, pid: u32, _: u64, _: Sig) -> Result<(), String> {
-        CALLS_C.lock().unwrap().push(pid);
-        Ok(())
-    }
-
-    fn select_pid(a: &mut App, pid: u32) {
-        let pos = a
-            .view
-            .iter()
-            .position(|(i, _)| a.rows[*i].pid == pid)
-            .unwrap();
-        a.select_index(pos);
-    }
-
     #[test]
     fn sottoalbero_di_init_vietato() {
         for root in [1u32, 2] {
@@ -1706,8 +1706,8 @@ mod tests {
             r.push(proc(30, 2, "kw"));
             let mut a = App::new((120, 40), "h".into());
             a.set_processes(r);
-            a.proc.kill = kill_a;
-            a.proc.start_fn = fake_start;
+            let (f, act) = fake(FakeActions::default());
+            a.proc.act = act;
             select_pid(&mut a, root);
             a.on_key(key(KeyCode::F(9)));
             a.on_key(key(KeyCode::Char(' ')));
@@ -1717,27 +1717,27 @@ mod tests {
             assert!(a.dialog.as_ref().unwrap().targets().is_empty());
             a.on_key(key(KeyCode::Enter));
             a.on_key(key(KeyCode::Enter));
+            assert!(f.sent.lock().unwrap().is_empty());
         }
-        assert!(CALLS_A.lock().unwrap().is_empty());
     }
 
     #[test]
     fn pid_riusato_non_riceve_nulla() {
-        fn reused(_: &std::path::Path, pid: u32) -> Option<u64> {
-            // 11 è stato sostituito da un processo diverso (altro avvio); 12 è sparito
-            match pid {
+        // 11 è stato sostituito da un processo diverso (altro avvio); 12 è sparito
+        let (f, act) = fake(FakeActions {
+            live: Some(|pid| match pid {
                 11 => Some(777),
                 12 => None,
                 _ => Some(0),
-            }
-        }
+            }),
+            ..FakeActions::default()
+        });
         let mut a = app_albero();
-        a.proc.kill = kill_b;
-        a.proc.start_fn = reused;
+        a.proc.act = act;
         select_pid(&mut a, 11);
         a.on_key(key(KeyCode::F(9)));
         a.on_key(key(KeyCode::Enter));
-        assert!(CALLS_B.lock().unwrap().is_empty());
+        assert!(f.sent.lock().unwrap().is_empty());
         let (t, ok) = a.proc.status_text().unwrap();
         assert!(!ok && t.contains("has exited, no signal"), "{t}");
         // sottoalbero di 10: solo 10 e 13 sono ancora gli stessi processi
@@ -1748,21 +1748,10 @@ mod tests {
         if a.dialog.is_some() {
             a.on_key(key(KeyCode::Enter));
         }
-        assert_eq!(*CALLS_B.lock().unwrap(), [10, 13]);
+        let pids: Vec<u32> = f.sent.lock().unwrap().iter().map(|x| x.0).collect();
+        assert_eq!(pids, [10, 13]);
         let (t, _) = a.proc.status_text().unwrap();
         assert!(t.contains("2 no longer exist"), "{t}");
-    }
-
-    static CALLS_D: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-    static CALLS_E: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-
-    fn kill_d(_: &std::path::Path, pid: u32, _: u64, _: Sig) -> Result<(), String> {
-        CALLS_D.lock().unwrap().push(pid);
-        Ok(())
-    }
-    fn kill_e(_: &std::path::Path, pid: u32, _: u64, _: Sig) -> Result<(), String> {
-        CALLS_E.lock().unwrap().push(pid);
-        Ok(())
     }
 
     fn set_start(a: &mut App, pid: u32, st: u64) {
@@ -1775,16 +1764,18 @@ mod tests {
 
     #[test]
     fn radice_riusata_i_figli_del_nuovo_non_ricevono() {
-        fn live(_: &std::path::Path, pid: u32) -> Option<u64> {
-            Some(match pid {
-                10 => 7,
-                40 | 41 => 8,
-                _ => 0,
-            })
-        }
+        let (f, act) = fake(FakeActions {
+            live: Some(|pid| {
+                Some(match pid {
+                    10 => 7,
+                    40 | 41 => 8,
+                    _ => 0,
+                })
+            }),
+            ..FakeActions::default()
+        });
         let mut a = app_albero();
-        a.proc.kill = kill_d;
-        a.proc.start_fn = live;
+        a.proc.act = act;
         select_pid(&mut a, 10);
         a.on_key(key(KeyCode::F(9)));
         a.on_key(key(KeyCode::Char(' ')));
@@ -1801,23 +1792,25 @@ mod tests {
         if a.dialog.is_some() {
             a.on_key(key(KeyCode::Enter));
         }
-        assert!(CALLS_D.lock().unwrap().is_empty());
+        assert!(f.sent.lock().unwrap().is_empty());
         let (t, ok) = a.proc.status_text().unwrap();
         assert!(!ok && t.contains("has exited, no signal"), "{t}");
     }
 
     #[test]
     fn nodo_intermedio_riusato_salta_il_ramo() {
-        fn live(_: &std::path::Path, pid: u32) -> Option<u64> {
-            Some(match pid {
-                12 => 9,
-                60 => 1,
-                _ => 0,
-            })
-        }
+        let (f, act) = fake(FakeActions {
+            live: Some(|pid| {
+                Some(match pid {
+                    12 => 9,
+                    60 => 1,
+                    _ => 0,
+                })
+            }),
+            ..FakeActions::default()
+        });
         let mut a = app_albero();
-        a.proc.kill = kill_e;
-        a.proc.start_fn = live;
+        a.proc.act = act;
         select_pid(&mut a, 10);
         a.on_key(key(KeyCode::F(9)));
         a.on_key(key(KeyCode::Char(' ')));
@@ -1832,7 +1825,8 @@ mod tests {
         if a.dialog.is_some() {
             a.on_key(key(KeyCode::Enter));
         }
-        assert_eq!(*CALLS_E.lock().unwrap(), [10, 11, 60]);
+        let pids: Vec<u32> = f.sent.lock().unwrap().iter().map(|x| x.0).collect();
+        assert_eq!(pids, [10, 11, 60]);
     }
 
     #[test]
@@ -1846,17 +1840,186 @@ mod tests {
         }
         let mut a = App::new((120, 40), "h".into());
         a.set_processes(r);
-        a.proc.kill = kill_c;
-        a.proc.start_fn = fake_start;
+        let (f, act) = fake(FakeActions::default());
+        a.proc.act = act;
         select_pid(&mut a, 10);
         a.on_key(key(KeyCode::F(9)));
         a.on_key(key(KeyCode::Char(' ')));
         a.on_key(key(KeyCode::Enter));
         assert!(a.dialog.as_ref().unwrap().armed);
-        assert!(CALLS_C.lock().unwrap().is_empty());
+        assert!(f.sent.lock().unwrap().is_empty());
         a.on_key(key(KeyCode::Enter));
         assert!(a.dialog.is_none());
-        assert_eq!(CALLS_C.lock().unwrap().len(), 64);
+        assert_eq!(f.sent.lock().unwrap().len(), 64);
+    }
+
+    fn remoto_app(uid: Option<u32>, target: &str) -> (App, Arc<FakeActions>) {
+        let mut r = rows();
+        for p in &mut r {
+            p.uid = 1000;
+        }
+        r[3].uid = 0; // 12 di un altro utente
+        let mut a = App::new((120, 40), "h".into());
+        a.set_processes(r);
+        a.remote = true;
+        a.remote_target = target.into();
+        a.remote_uid = uid;
+        let (f, act) = fake(FakeActions::default());
+        a.proc.act = act;
+        (a, f)
+    }
+
+    #[test]
+    fn remoto_nomina_la_macchina_e_conta_gli_utenti_del_server() {
+        // uid noto e uguale: solo il 12 è di altri, ma con 1 non basta a chiedere... lo chiede (foreign > 0)
+        let (mut a, f) = remoto_app(Some(1000), "alex@server");
+        select_pid(&mut a, 10);
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Char(' ')));
+        let d = a.dialog.clone().unwrap();
+        assert!(d.lines().iter().any(|l| l == "On: alex@server"));
+        assert_eq!(d.foreign, 1);
+        assert!(d.needs_confirm());
+        a.on_key(key(KeyCode::Enter));
+        assert!(f.sent.lock().unwrap().is_empty());
+        assert!(a.dialog.as_ref().unwrap().armed);
+        a.on_key(key(KeyCode::Enter));
+        assert_eq!(f.sent.lock().unwrap().len(), 4);
+        // uid diverso o ignoto, target senza utente: tutti di altri, doppia conferma
+        for (uid, target) in [(Some(0), "alex@server"), (None, "server")] {
+            let (mut a, f) = remoto_app(uid, target);
+            select_pid(&mut a, 10);
+            a.on_key(key(KeyCode::F(9)));
+            a.on_key(key(KeyCode::Char(' ')));
+            let d = a.dialog.clone().unwrap();
+            assert!(d.foreign >= 3, "{uid:?}");
+            assert!(d.needs_confirm());
+            a.on_key(key(KeyCode::Enter));
+            assert!(f.sent.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn invio_rifiutato_dopo_cambio_di_connessione() {
+        let (mut a, f) = remoto_app(Some(1000), "alex@server");
+        select_pid(&mut a, 11);
+        a.on_key(key(KeyCode::F(9)));
+        f.session.store(6, Ordering::SeqCst); // riconnessione mentre il dialogo è aperto
+        a.on_key(key(KeyCode::Enter));
+        assert!(a.dialog.is_none());
+        assert!(f.sent.lock().unwrap().is_empty());
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(!ok && t.contains("connection changed"), "{t}");
+    }
+
+    #[test]
+    fn app_senza_azioni_non_tocca_quelle_locali() {
+        // default: NoActions; in remoto un processo "vivo" qui non viene mai segnalato
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let mut r = rows();
+        r.push(proc(child.id(), 0, "sleep"));
+        let mut a = App::new((120, 40), "h".into());
+        a.set_processes(r);
+        a.remote = true;
+        select_pid(&mut a, child.id());
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Enter));
+        a.on_key(key(KeyCode::Enter));
+        assert!(child.try_wait().unwrap().is_none());
+        change_nice(&mut a, 1);
+        assert!(!a.proc.status_text().unwrap().1);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn app_nuova_senza_azioni_rifiuta_segnali_e_nice() {
+        let mut a = App::new((120, 40), "h".into());
+        a.set_processes(rows());
+        select_pid(&mut a, 11);
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Enter));
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(!ok, "{t}");
+        // radice non viva per NoActions o rifiuto: in ogni caso nessun invio riuscito
+        assert!(!t.contains("sent to"), "{t}");
+        change_nice(&mut a, 1);
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(
+            !ok && t.contains(crate::source::actions::NO_ACTIONS_MSG),
+            "{t}"
+        );
+        assert_eq!(
+            a.proc.act.signal(&[(11, 0)], 15),
+            vec![Err(crate::source::actions::NO_ACTIONS_MSG.to_string())]
+        );
+    }
+
+    #[test]
+    fn pid_protetto_dopo_l_apertura_non_viene_colpito() {
+        let (mut a, f) = remoto_app(Some(1000), "alex@server");
+        select_pid(&mut a, 10);
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Char(' ')));
+        // dopo l'apertura il 11 diventa protetto (es. la sessione del server)
+        f.late_prot.lock().unwrap().push(11);
+        a.on_key(key(KeyCode::Enter));
+        if a.dialog.is_some() {
+            a.on_key(key(KeyCode::Enter));
+        }
+        let pids: Vec<u32> = f.sent.lock().unwrap().iter().map(|x| x.0).collect();
+        assert!(!pids.is_empty() && !pids.contains(&11), "{pids:?}");
+    }
+
+    #[test]
+    fn esito_incerto_mostrato_come_tale() {
+        let (mut a, _) = remoto_app(Some(1000), "alex@server");
+        let (_, act) = fake(FakeActions {
+            sig_err: Some("connection lost: outcome unknown (retry after checking)".into()),
+            ..FakeActions::default()
+        });
+        a.proc.act = act;
+        select_pid(&mut a, 11);
+        a.on_key(key(KeyCode::F(9)));
+        a.on_key(key(KeyCode::Enter));
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(!ok && t.contains("connection lost: outcome unknown"), "{t}");
+        assert!(!t.contains("errors"));
+    }
+
+    #[test]
+    fn nice_verifica_l_avvio_e_spiega_il_permesso() {
+        let mut r = rows();
+        r[2].start_ticks = 55;
+        r[2].nice = 3;
+        let mut a = App::new((120, 40), "h".into());
+        a.set_processes(r);
+        let (f, act) = fake(FakeActions::default());
+        a.proc.act = act;
+        select_pid(&mut a, 11);
+        change_nice(&mut a, 1);
+        assert_eq!(*f.nices.lock().unwrap(), [(11, 55, 4)]);
+        assert!(a.proc.status_text().unwrap().1);
+        // senza permessi, abbassare dà un testo chiaro (anche in remoto)
+        let (_, act) = fake(FakeActions {
+            nice_err: Some(crate::source::actions::ERR_PERM.into()),
+            ..FakeActions::default()
+        });
+        a.proc.act = act;
+        a.remote = true;
+        change_nice(&mut a, -1);
+        let (t, ok) = a.proc.status_text().unwrap();
+        assert!(
+            !ok && t.contains("root is needed to lower the nice value"),
+            "{t}"
+        );
+        // con root sul server il testo grezzo non viene nascosto
+        a.remote_root = true;
+        change_nice(&mut a, -1);
+        assert!(a.proc.status_text().unwrap().0.contains("EPERM"));
     }
 
     #[test]
@@ -1904,13 +2067,18 @@ mod tests {
             .spawn()
             .expect("sleep");
         let pid = child.id();
-        let start = live_start(std::path::Path::new("/proc"), pid).unwrap();
-        send_signal(std::path::Path::new("/proc"), pid, start, SIGNALS[0]).unwrap();
+        let act = LocalActions::new("/proc".into());
+        let start = act.live_starts(&[pid])[0].unwrap();
+        act.signal(&[(pid, start)], SIGNALS[0].num)[0]
+            .clone()
+            .unwrap();
         let st = child.wait().unwrap();
         use std::os::unix::process::ExitStatusExt;
         assert_eq!(st.signal(), Some(15));
         // processo ormai inesistente (già atteso): errore leggibile, niente panic
-        let e = send_signal(std::path::Path::new("/proc"), pid, start, SIGNALS[0]).unwrap_err();
+        let e = act.signal(&[(pid, start)], SIGNALS[0].num)[0]
+            .clone()
+            .unwrap_err();
         assert!(e.contains("ESRCH"), "{e}");
     }
 
@@ -1921,12 +2089,14 @@ mod tests {
             .spawn()
             .expect("sleep");
         let pid = child.id();
-        assert!(set_nice(pid, 5).is_ok());
-        let n = rustix::process::getpriority_process(to_pid(pid)).unwrap();
+        let act = LocalActions::new("/proc".into());
+        let start = act.live_starts(&[pid])[0].unwrap();
+        assert!(act.set_nice(pid, start, 5).is_ok());
+        let n = rustix::process::getpriority_process(crate::source::actions::to_pid(pid)).unwrap();
         assert_eq!(n, 5);
         // abbassare senza root non riesce (se si è root il test non ha senso)
         if rustix::process::getuid().as_raw() != 0 {
-            assert!(set_nice(pid, 4).is_err());
+            assert!(act.set_nice(pid, start, 4).is_err());
         }
         let _ = child.kill();
         let _ = child.wait();

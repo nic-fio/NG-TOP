@@ -117,8 +117,11 @@ pub const SECTION_HELP: &[(&str, &[(&str, &str)])] = &[
         &[
             ("/", "search"),
             ("f", "filter"),
-            ("u", "system/user"),
-            ("s t r", "start/stop/restart"),
+            ("u", "system/user (this machine only)"),
+            (
+                "s t r",
+                "start/stop/restart (remote: needs root, see --sudo)",
+            ),
             ("e", "enable/disable"),
             ("j", "full-screen journal"),
         ],

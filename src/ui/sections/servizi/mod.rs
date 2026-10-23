@@ -16,7 +16,7 @@ use ratatui::style::Color;
 
 use crate::collect::process::Process;
 use crate::collect::services::dbus::DbusBackend;
-use crate::collect::services::remote::{REMOTE_ACTION_MSG, REMOTE_USER_MSG};
+use crate::collect::services::remote::REMOTE_USER_MSG;
 use crate::collect::services::worker::{Client, Request, Response};
 use crate::collect::services::{
     Action, ActionError, Backend, BootTimestamps, DENIED_TEXT, JournalLine, Scope, SessionInfo,
@@ -145,6 +145,8 @@ pub struct Confirm {
     pub action: Action,
     /// 0 = Annulla, 1 = Conferma.
     pub button: usize,
+    /// Connessione remota quando è stata chiesta la conferma.
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -199,8 +201,10 @@ pub struct Servizi {
     last_sessions: Option<Instant>,
     boot_asked: bool,
     blame_asked: bool,
-    /// Macchina remota: azioni disattivate e niente controllo di systemd sul disco locale.
+    /// Macchina remota: azioni di sistema via systemctl, niente controllo di systemd sul disco locale.
     remote: Option<RemoteCtx>,
+    /// Macchina remota per le finestre di conferma: (destinazione, esegue come root).
+    pub machine: Option<(String, bool)>,
 }
 
 impl Default for Servizi {
@@ -265,6 +269,7 @@ impl Servizi {
             boot_asked: false,
             blame_asked: false,
             remote: None,
+            machine: None,
         }
     }
 
@@ -287,6 +292,14 @@ impl Servizi {
         old(self.units_pending, self.last_units)
             || old(self.detail_pending.is_some(), self.last_detail)
             || old(self.journal_pending.is_some(), self.last_journal)
+    }
+
+    /// Sessione corrente sul server, letta dal vivo dalla sorgente (0 in locale).
+    fn live_generation(&self) -> u64 {
+        self.remote
+            .as_ref()
+            .and_then(|(src, ..)| src.remote_status())
+            .map_or(0, |s| s.generation)
     }
 
     fn send(&self, r: Request) {
@@ -434,6 +447,7 @@ impl Servizi {
                 unit: u.info.name.clone(),
                 action,
                 button: 0,
+                generation: self.live_generation(),
             });
         }
     }
@@ -448,7 +462,15 @@ impl Servizi {
                 KeyCode::Enter => {
                     let c = c.clone();
                     self.confirm = None;
-                    if c.button == 1 {
+                    if c.button == 1
+                        && self.remote.is_some()
+                        && c.generation != self.live_generation()
+                    {
+                        self.set_status(
+                            "the connection changed since the confirmation: nothing done".into(),
+                            false,
+                        );
+                    } else if c.button == 1 {
                         self.set_status(format!("{} {}…", c.action.verb(), c.unit), true);
                         self.action_pending = true;
                         self.send(Request::Action(self.scope, c.unit, c.action));
@@ -497,9 +519,6 @@ impl Servizi {
                 self.set_status(REMOTE_USER_MSG.into(), false);
             }
             KeyCode::Char('u') => self.switch_scope(),
-            KeyCode::Char('s' | 't' | 'r' | 'e') if self.remote.is_some() => {
-                self.set_status(REMOTE_ACTION_MSG.into(), false);
-            }
             KeyCode::Char('s') => self.ask_confirm(Action::Start),
             KeyCode::Char('t') => self.ask_confirm(Action::Stop),
             KeyCode::Char('r') => self.ask_confirm(Action::Restart),
@@ -875,6 +894,72 @@ mod tests {
             ..Default::default()
         })
         .collect()
+    }
+
+    /// Sorgente remota finta con sessione modificabile.
+    struct GenSource(std::sync::atomic::AtomicU64);
+
+    impl Source for GenSource {
+        fn read(&self, p: &std::path::Path) -> std::io::Result<Vec<u8>> {
+            crate::source::LocalSource.read(p)
+        }
+        fn read_dir(&self, p: &std::path::Path) -> std::io::Result<Vec<std::ffi::OsString>> {
+            crate::source::LocalSource.read_dir(p)
+        }
+        fn read_link(&self, p: &std::path::Path) -> std::io::Result<PathBuf> {
+            crate::source::LocalSource.read_link(p)
+        }
+        fn owner_uid(&self, p: &std::path::Path) -> std::io::Result<u32> {
+            crate::source::LocalSource.owner_uid(p)
+        }
+        fn statvfs(&self, m: &std::path::Path) -> std::io::Result<crate::source::FsStat> {
+            crate::source::LocalSource.statvfs(m)
+        }
+        fn remote_status(&self) -> Option<crate::source::RemoteStatus> {
+            Some(crate::source::RemoteStatus {
+                target: "alex@server".into(),
+                hostname: None,
+                latency_ms: None,
+                last_bytes: 0,
+                root: true,
+                generation: self.0.load(std::sync::atomic::Ordering::SeqCst),
+                uid: Some(0),
+                state: crate::source::RemoteState::Connected,
+            })
+        }
+    }
+
+    #[test]
+    fn conferma_rifiutata_se_la_sessione_cambia() {
+        let src = Arc::new(GenSource(std::sync::atomic::AtomicU64::new(3)));
+        let mut s = Servizi::remote(src.clone(), Arc::new(crate::source::LocalRunner), 1);
+        s.confirm = Some(Confirm {
+            unit: "a.service".into(),
+            action: Action::Stop,
+            button: 1,
+            generation: s.live_generation(),
+        });
+        assert_eq!(s.live_generation(), 3);
+        // riconnessione mentre la conferma è aperta
+        src.0.store(4, std::sync::atomic::Ordering::SeqCst);
+        s.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(s.confirm.is_none());
+        assert!(!s.action_pending, "azione inviata con sessione cambiata");
+        let st = s.status.as_ref().unwrap();
+        assert!(
+            !st.ok && st.text.contains("connection changed"),
+            "{}",
+            st.text
+        );
+        // stessa sessione: parte
+        s.confirm = Some(Confirm {
+            unit: "a.service".into(),
+            action: Action::Stop,
+            button: 1,
+            generation: 4,
+        });
+        s.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(s.action_pending);
     }
 
     #[test]

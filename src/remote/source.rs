@@ -14,11 +14,11 @@ use std::ffi::OsString;
 use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, Weak};
 use std::time::Duration;
 
-use super::session::{Rec, Session, Transport, rc_error, sh_quote};
+use super::session::{Rec, Session, Transport, clean, rc_error, sh_quote};
 use crate::source::{CommandOutput, CommandRunner, FsStat, RemoteState, RemoteStatus, Source};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -206,14 +206,23 @@ struct StatusInfo {
     state: Option<RemoteState>,
     page_size: Option<u64>,
     clock_ticks: Option<u64>,
+    /// Lo script sul server gira come root; pid della sua sessione (antenati fino a PID 1 escluso).
+    root: bool,
+    uid: Option<u32>,
+    /// Aumenta a ogni sessione avviata con successo.
+    generation: u64,
+    self_pids: Vec<u32>,
 }
 
-struct Shared {
+pub(super) struct Shared {
     transport: Transport,
     target: String,
     sess: Mutex<Option<Session>>,
     status: Mutex<StatusInfo>,
     reconnecting: AtomicBool,
+    /// Generazione della sessione installata (0 = nessuna): scritta quando la sessione entra o esce,
+    /// letta senza lock (l'interfaccia la chiede a ogni invio e non deve aspettare una richiesta lenta).
+    gen_now: AtomicU64,
     /// Solo per i test: tutte le righe di richiesta inviate.
     #[cfg(test)]
     sent: Mutex<Vec<u8>>,
@@ -232,8 +241,10 @@ pub(super) fn open(
     tr: Transport,
     target: String,
 ) -> io::Result<(Arc<RemoteSource>, Arc<RemoteRunner>)> {
-    let sess = Session::start(&tr, true)?;
+    let mut sess = Session::start(&tr, true)?;
+    sess.generation = 1;
     let (page_size, clock_ticks) = (sess.page_size, sess.clock_ticks);
+    let (root, uid, self_pids) = (sess.uid == Some(0), sess.uid, sess.self_pids.clone());
     let sh = Arc::new(Shared {
         transport: tr,
         target,
@@ -242,9 +253,14 @@ pub(super) fn open(
             state: Some(RemoteState::Connected),
             page_size: Some(page_size),
             clock_ticks: Some(clock_ticks),
+            root,
+            uid,
+            generation: 1,
+            self_pids,
             ..Default::default()
         }),
         reconnecting: AtomicBool::new(false),
+        gen_now: AtomicU64::new(1),
         #[cfg(test)]
         sent: Mutex::new(Vec::new()),
     });
@@ -259,6 +275,16 @@ pub(super) fn open(
 }
 
 impl Shared {
+    /// Generazione della sessione corrente (0 = nessuna sessione), senza prendere il lock di sessione.
+    pub(super) fn generation(&self) -> u64 {
+        self.gen_now.load(Ordering::SeqCst)
+    }
+
+    /// Pid della sessione ngtop sul server (lo script e i suoi antenati).
+    pub(super) fn self_pids(&self) -> Vec<u32> {
+        lock(&self.status).self_pids.clone()
+    }
+
     fn connected(&self) -> bool {
         matches!(lock(&self.status).state, Some(RemoteState::Connected))
     }
@@ -273,7 +299,7 @@ impl Shared {
 
     /// Una richiesta sulla sessione (serializzata dal Mutex). Se fallisce la sessione si scarta e parte
     /// la riconnessione in sottofondo.
-    fn request(
+    pub(super) fn request(
         self: &Arc<Self>,
         lines: &[u8],
         timeout: Duration,
@@ -294,6 +320,7 @@ impl Shared {
             }
             Err(e) => {
                 *g = None;
+                self.gen_now.store(0, Ordering::SeqCst);
                 drop(g);
                 self.lost(e.to_string());
                 Err(e)
@@ -325,7 +352,7 @@ impl Shared {
     }
 
     fn lost(self: &Arc<Self>, msg: String) {
-        lock(&self.status).state = Some(RemoteState::Reconnecting(msg));
+        lock(&self.status).state = Some(RemoteState::Reconnecting(clean(&msg)));
         if self.reconnecting.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -336,13 +363,22 @@ impl Shared {
                 std::thread::sleep(wait);
                 let Some(sh) = weak.upgrade() else { return };
                 match Session::start(&sh.transport, false) {
-                    Ok(s) => {
+                    Ok(mut s) => {
                         {
                             let mut st = lock(&sh.status);
                             st.page_size = Some(s.page_size);
                             st.clock_ticks = Some(s.clock_ticks);
+                            st.root = s.uid == Some(0);
+                            st.uid = s.uid;
+                            st.generation += 1;
+                            s.generation = st.generation;
+                            st.self_pids = s.self_pids.clone();
                         }
-                        *lock(&sh.sess) = Some(s);
+                        let gen_new = s.generation;
+                        let mut g = lock(&sh.sess);
+                        *g = Some(s);
+                        sh.gen_now.store(gen_new, Ordering::SeqCst);
+                        drop(g);
                         let _ = sh.refresh_hostname();
                         lock(&sh.status).state = Some(RemoteState::Connected);
                         sh.reconnecting.store(false, Ordering::SeqCst);
@@ -355,14 +391,16 @@ impl Shared {
                             "Permission denied",
                             "Host key verification failed",
                             "HOST IDENTIFICATION HAS CHANGED",
+                            // sudo non cambia idea: insistere con una password sbagliata sarebbe solo rumore nei log
+                            "sudo: ",
                         ]
                         .iter()
                         .any(|m| msg.contains(m))
                         {
-                            lock(&sh.status).state = Some(RemoteState::Failed(msg));
+                            lock(&sh.status).state = Some(RemoteState::Failed(clean(&msg)));
                             return;
                         }
-                        lock(&sh.status).state = Some(RemoteState::Reconnecting(msg));
+                        lock(&sh.status).state = Some(RemoteState::Reconnecting(clean(&msg)));
                         wait = (wait * 2).min(Duration::from_secs(10));
                     }
                 }
@@ -377,7 +415,7 @@ impl Shared {
         req.push(b'\n');
         let (recs, _) = self.request(&req, REQUEST_TIMEOUT, None)?;
         if let Some(r) = recs.first().filter(|r| r.rc == 0) {
-            lock(&self.status).hostname = Some(String::from_utf8_lossy(&r.body).trim().to_string());
+            lock(&self.status).hostname = Some(clean(String::from_utf8_lossy(&r.body).trim()));
         }
         Ok(())
     }
@@ -1290,6 +1328,9 @@ impl Source for RemoteSource {
             hostname: s.hostname.clone(),
             latency_ms: s.latency_ms,
             last_bytes: s.last_bytes,
+            root: s.root,
+            generation: s.generation,
+            uid: s.uid,
             state: s.state.clone().unwrap_or(RemoteState::Connected),
         })
     }
@@ -1334,6 +1375,9 @@ impl CommandRunner for RemoteRunner {
 }
 
 impl RemoteSource {
+    pub(super) fn shared(&self) -> Arc<Shared> {
+        self.sh.clone()
+    }
     /// Solo per i test: termina il processo della sessione.
     #[doc(hidden)]
     pub fn kill_session_for_test(&self) {

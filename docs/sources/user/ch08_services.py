@@ -107,6 +107,8 @@ S_PASSWORD = p("ngtop does not ask for passwords and does not keep any. When you
     p("So on a server, the practical way is to start ngtop with sudo when you need to act on services, and without it for just "
       "looking:") + \
     term("""$ sudo ngtop --section 5""") + \
+    p("<b>On a remote machine</b> there is no polkit window: if the user you log in as cannot manage services, ngtop says <code>needs root: start ngtop with --sudo</code>. "
+      "Start it as " + c("ngtop --sudo alex@server") + " to act as root on the server (" + rif("Acting as root: --sudo") + ").") + \
     tip("Running everything as root is not needed. The monitoring never requires it (" + rif("Permissions and running as root") + ").")
 
 S_BOOT = p("On a large terminal the bottom left panel is <b>boot</b>. Its title says when the machine last started and how long the "

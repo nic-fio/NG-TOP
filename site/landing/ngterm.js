@@ -21,7 +21,7 @@ const NGT = (() => {
     compact: [['F1', 'Help'], ['/', 'Filter'], ['F5', 'Tree'], ['F6', 'Sort'], ['F9', 'Sig'], ['q', 'Quit']],
   };
   const keys = n => '<div class="keys">' + KEYS[n].map(([k, l]) => `<b>${k}</b><span>${l}</span>`).join('') + '</div>';
-  const top = (n) => `<div class="top"><span class="b c-net">ngtop</span><span class="dim"> 1.5 │ </span><div class="tabs">${SECTIONS.map((s, i) => `<span data-s="${i}" class="${i === IDX[n] ? 'on' : ''}">${i + 1} ${s}</span>`).join('')}</div><span class="grow"></span><span class="dim"> workstation │ load </span><span class="c-yel">2.41</span><span class="dim"> │ </span><span data-clock></span></div>`;
+  const top = (n) => `<div class="top"><span class="b c-net">ngtop</span><span class="dim"> 1.6 │ </span><div class="tabs">${SECTIONS.map((s, i) => `<span data-s="${i}" class="${i === IDX[n] ? 'on' : ''}">${i + 1} ${s}</span>`).join('')}</div><span class="grow"></span><span class="dim"> workstation │ load </span><span class="c-yel">2.41</span><span class="dim"> │ </span><span data-clock></span></div>`;
   const P = (c, t, body, extra = '') => `<div class="panel" style="--c:${c}"><span class="t">${t}</span>${extra}${body}</div>`;
   const tr = t => `<span class="t tr">${t}</span>`;
 

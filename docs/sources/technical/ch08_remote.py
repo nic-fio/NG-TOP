@@ -31,7 +31,7 @@ ROUND = seq([
     ("note", 0, "the collectors read from the cache"),
 ], "«FIG» — One refresh: a single round trip")
 
-S1 = p("Version 1.5 lets ngtop show another machine exactly as it shows this one: " + c("ngtop user@host") + ". Nothing is installed "
+S1 = p("Version 1.5 lets ngtop show another machine exactly as it shows this one: " + c("ngtop user@host") + "; version 1.6 adds actions on it (" + rif("Actions on the server") + "). Nothing is installed "
        "on the server. The only requirements are an ssh server and a POSIX shell with " + c("cat") + ", which any Linux has, busybox included. "
        "Inside ngtop only the <i>place where bytes are read</i> changes; the formulas, the graphs and the sections are the same code.", lead=True) + ABSTRACTION + \
     table(["Item", "Where", "Role"], [
@@ -66,9 +66,10 @@ S2 = p("The connection is made <i>before</i> the interface starts (" + c("connec
          + c("ps") + " on the server does not show it"],
         ["Capabilities", "The agent tests what the server has: " + c("timeout") + " (also with " + c("-k") + "), " + c("ls -q") + ", " + c("stat -L -c") + " and " + c("stat -f -c") + " (GNU and busybox forms), and asks " + c("getconf PAGESIZE") + " and " + c("getconf CLK_TCK")
          + " (fallbacks 4096 and 100 if the answer is not a number)"],
-        ["READY", "The agent answers with one line: " + c("<NG> READY 111 4096 100") + ": three flags (" + c("stat -c") + " usable, " + c("stat -f") + " usable, " + c("timeout") + " present), page size, ticks per second. "
+        ["With " + c("--sudo"), "The remote command is not " + c("env TERM=dumb sh") + " any more but a " + c("sudo") + " that starts it, and the start follows the handshake of " + rif("The sudo handshake") + ". " + c("ConnectOptions.sudo") + " is false by default"],
+        ["READY", "The agent answers with one line: " + c("<NG> READY 111 4096 100 1000 1,812,15090") + ": three flags (" + c("stat -c") + " usable, " + c("stat -f") + " usable, " + c("timeout") + " present), page size, ticks per second, the <b>uid</b> of the script and the pids of the agent's own chain (its shell, " + c("sudo") + ", " + c("sshd") + "…). "
          "The client looks for that marker; any text before it (a banner, a login message) is ignored, but more than 1 MiB of it is an error. Waiting may last 300 s, because a password may be asked"],
-        ["stderr", "Until READY the ssh messages go to the terminal (password prompts, host key questions). Afterwards the last 4 KiB are kept to explain a failure"],
+        ["stderr", "Until READY the ssh messages go to the terminal (password prompts, host key questions); with " + c("--sudo") + " stderr is kept during the handshake instead (the questions of ssh itself, password and host key, still use " + sysf("/dev/tty") + "). Afterwards the last 4 KiB are kept to explain a failure"],
     ], "«TAB» — Starting the session") + \
     p("Three small threads serve the process: one reads its standard error, one reads its standard output and sends the chunks on a channel, one writes the requests. The refresh thread only exchanges messages "
       "with them. A <b>round trip</b> is " + c("Session::exchange()") + ": it sends the request lines wrapped in a " + c("p") + " (ping) and a " + c("z N") + " (end, with a sequence number), then reads records until it sees " + c("Z N") + ". "
@@ -168,7 +169,8 @@ S6 = p("The user sees the other machine as the local one, with a few differences
         ["Command line", c("ngtop [options] [TARGET]") + ", " + c("--host TARGET") + " (the same), " + c("--local") + " (ignore the " + c("host") + " key of the file), and the configuration key " + c("host") + ". " + c("--dump") + " and " + c("--snapshot") + " also accept a TARGET"],
         ["Tab bar", "At the right, " + c("⇄ host") + " (the remote host name if known, else the target) and the latency in ms, coloured green under 50, yellow under 200, red above (" + c("latency_color()") + "). The title of the help window adds the machine name"],
         ["Data", "All five sections work: GPU with the remote " + c("fdinfo") + ", the detail of the selected process, the connections only while the section is visible, Services without D-Bus (" + rif("Services without D-Bus") + ")"],
-        ["Actions", "Signals (" + c("F9") + ", " + c("k") + "), nice (" + c("F7") + ", " + c("F8") + ") and service actions are <b>disabled</b>: the key shows the line “Not available on remote machines in this version”. In the filter box, " + c("k") + " is still text"],
+        ["Actions", "Signals (" + c("F9") + ", " + c("k") + "), nice (" + c("F7") + ", " + c("F8") + ") and service actions go through " + c("Roots.act") + " and the remote backend (" + rif("Actions on the server") + "). The dialogs name the machine. Only the user units (" + c("u") + ") stay blocked. In the filter box, " + c("k") + " is still text"],
+        ["Root", "When the script on the server runs as uid 0 (" + c("RemoteStatus.root") + ", from " + c("id -u") + "), the tab bar shows “root”"],
         ["Time", "Clock and process start times use the time zone of the remote machine"],
     ], "«TAB» — The remote mode of the interface") + \
     note("The refresh of the local machine does not change: the cost of the local collectors, about 5 ms per refresh, is the same when the data comes from the network, because the network wait happens in one round trip at the start. See " + rif("Remote measurements") + ".", "Same code, same cost.")
@@ -186,7 +188,7 @@ S7 = p("A remote machine has no D-Bus the way " + c("DbusBackend") + " uses it. 
         ["Journal", c("journalctl --unit=NAME -n 50 -o json --no-pager -q"), "—"],
     ], "«TAB» — How remote Services data is obtained") + \
     p("A unit name or a session id is checked against a strict list of characters before it is used (" + c("valid_unit_name()") + ", " + c("valid_session_id()") + "). User units are not reachable (the session bus is not): the section says "
-      "“User units are not available on remote machines”. Actions return “Not available on remote machines in this version” from the backend itself, and the interface does not even offer them. If a command is missing, its part of the screen shows “—” or an explanation, like a local machine without systemd.")
+      "“User units are not available on remote machines”. The actions of the system scope run " + c("systemctl --no-ask-password VERB -- UNIT") + " through " + c("CommandRunner") + " (" + rif("Actions on the server") + "); the user scope still returns its own message. If a command is missing, its part of the screen shows “—” or an explanation, like a local machine without systemd.")
 
 S8 = p("The remote machine is not trusted. It may be misconfigured or compromised, and a user on it can choose the names of their files and processes. The question the design answers is: <i>what can a hostile server, or a hostile user on it, do to the machine "
        "that runs ngtop, and to the server?</i>", lead=True) + \
@@ -198,8 +200,11 @@ S8 = p("The remote machine is not trusted. It may be misconfigured or compromise
         ["A command line that changes during the read, so one process gets another's", "The double measure of " + c("B") + " / " + c("Q"), c("absorb()")],
         ["A reply that never ends or is enormous", "1 MiB at most before READY; 128 MiB at most per reply (" + c("MAX_RESPONSE") + "); 10 s per request; 4 KiB of stderr kept; lists re-requested after a rejection are capped (200 links, 500 folders)", c("session.rs") + ", " + c("source.rs")],
         ["Numbers or lengths that lie", "Every slice and sum from the server is checked; a record that does not fit is dropped or the session is closed; no " + c("unwrap()") + " on them. The protocol parsers have tests with truncated and invented input", c("src/remote/tests.rs")],
-        ["Writing on the server", "The agent only reads: " + c("cat") + ", " + c("grep") + ", " + c("ls") + ", " + c("stat") + ", " + c("readlink") + ", " + c("wc") + ", " + c("getconf") + ". It creates no file, listens on no port, and leaves nothing after the session. The commands of Services only read; the actions are disabled", c("agent.sh")],
+        ["Writing on the server", "The monitoring only reads: " + c("cat") + ", " + c("grep") + ", " + c("ls") + ", " + c("stat") + ", " + c("readlink") + ", " + c("wc") + ", " + c("getconf") + ". The agent creates no file, listens on no port, and leaves nothing after the session. The only commands that change something are the ones that you ask for: a signal, a nice value, a service action (" + rif("Actions on the server") + ")", c("agent.sh")],
+        ["An action on the wrong process", "The start time travels with the pid and is checked in the same command (" + rif("Actions on the server") + "). PID 1 is never touched; the session of ngtop on the server is skipped in subtrees and warned about when chosen directly", c("RemoteActions")],
+        ["The sudo password", "Sent once, only after the random prompt of sudo; ngtop waits for the marker before sending any script; kept in memory only, zeroed on drop, process non-dumpable; never in argv, logs, errors or files (" + rif("The sudo handshake") + ")", c("src/remote/")],
         ["The agent hanging on a mount", "Network and FUSE mounts are asked alone with a 2-second limit, and a failed one is skipped for 30 laps; " + c("x") + " commands run under " + c("timeout") + " when the server has it", c("statvfs_net()")],
+        ["Texts from the server shown in the interface", "Host name, error messages and connection states are cleaned of control characters before they are drawn, so a server cannot move the cursor or write escape sequences on the terminal", c("tests/hostile.rs")],
         ["The credentials", "ngtop never sees them. Passwords and keys are handled by the user's own ssh, with their " + c("ssh_config") + ", agent and " + c("known_hosts") + ". A reconnection uses " + c("BatchMode") + " and stops on a refused login or a changed host key", c("Transport::command()")],
     ], "«TAB» — What protects ngtop and the server") + \
     p("<b>What the design does not do.</b> The code documents these residual risks, and so does this manual:") + \
@@ -208,8 +213,60 @@ S8 = p("The remote machine is not trusted. It may be misconfigured or compromise
         ["Two processes swapping command-line bytes with equal lengths", "The double measure compares lengths, not contents. A swap that keeps both lengths equal before and after the " + c("cat") + " but differs during it would not be detected. Effect: one command line shown wrongly, once"],
         ["Text files read by " + c("grep") + " differ in small ways", "An empty or unreadable file becomes “not found”, a final newline is always present, a file with NUL may be cut. This applies only to kernel text files chosen by " + c("file_mode()") + ". And a huge argument list (tens of thousands of paths, beyond " + c("ARG_MAX") + ") is not split: those files would appear absent"],
         ["Old busybox without " + c("timeout"), "Then there is no time limit on the server for network mounts and commands; ngtop still has its own limits on the answer"],
-        ["No identification of a process across the network", "Another reason why signals and nice are disabled in this version: the " + c("pidfd") + " protection of " + rif("Signals: pidfd and start time") + " does not exist across ssh"],
+        ["No pinned handle on the remote process", "The " + c("pidfd") + " protection of " + rif("Signals: pidfd and start time") + " does not exist across ssh. The check and the signal are two steps of one command on the server: a window of a few milliseconds remains (" + rif("Actions on the server") + ")"],
+        ["The sudo password in memory", "It lives in the process for the whole run, so that a reconnection needs no question. It is zeroed on drop and the process is non-dumpable: no core dump and no ptrace by normal users. Root can still read the memory, and without mlock it may end up in swap. Not keeping it would make every reconnection ask to restart"],
     ], "«TAB» — Residual risks")
+
+S_ACT = p("A remote action is not a new channel: it is one more kind of request in the same record protocol (" + rif("The record protocol") + "), answered in the same round trip. "
+          "The interface does not know whether the machine is local or remote: it calls the trait " + c("ProcActions") + " (" + c("src/source/actions.rs") + ") that it finds in " + c("Roots.act") + ".", lead=True) + \
+    table(["Item", "Role"], [
+        [c("ProcActions"), "Four methods: " + c("live_starts") + " (current start times of a list of pids), " + c("signal") + ", " + c("set_nice") + ", " + c("protected") + " (the pids to protect, with the reason: PID 1 is refused, the session of ngtop is skipped in subtrees and warned about if chosen directly)"],
+        [c("LocalActions"), "The old local code (pidfd), moved out of the interface"],
+        [c("NoActions"), "Refuses everything. " + c("Roots::remote()") + " starts with it, so a remote pid can <b>never</b> reach the local code"],
+        [c("RemoteActions"), "The remote version, built by " + c("actions_for()") + " from the " + c("RemoteSource") + ". It returns the same error texts as the local one (" + c("ERR_GONE") + ", " + c("ERR_REUSED") + ", " + c("ERR_PERM") + ", " + c("ERR_ACCESS") + ")"],
+    ], "«TAB» — The action interface") + \
+    p("<b>Signal and nice.</b> For each target the client sends the pair <i>pid, start time</i>. The requests are lines of digits: " + c("j PID…") + " asks the start times (record " + c("J") + ", the start time or “-” for each pid), " + c("a SIG PID START [PID START…]") + " sends a signal to each pair and " + c("r NICE PID START") + " changes the nice value; the last two answer with a record " + c("O") + ". "
+      "The agent reads the start time of the pid again (the field 22 of " + c("/proc/PID/stat") + ", "
+      "taken after the last “) ” so a command name with spaces or parentheses cannot shift the fields) and runs " + c("kill") + " or " + c("renice") + " <b>only if the two times are equal</b>, "
+      "in the same command. A subtree is a batch: one request, one answer per target. The nice value is absolute. Pid, start time, signal number and nice value are plain integers, "
+      "validated both in Rust and in the shell (a pid is at most 4194304, the highest " + c("pid_max") + " of Linux), and never written into the script as free text. A signal is sent by name when the number is a known one. "
+      "The nice value is set with " + c("renice N -p PID") + " without " + c("-n") + " (it is absolute on both busybox and util-linux) and then read again to check it.") + \
+    table(["Outcome per target", "Text"], [
+        ["ok / gone / reused / perm / acc / err / bad", "the codes of the record " + c("O") + ", per target"],
+        ["The pid does not exist any more", "the same as the local " + c("ERR_GONE")],
+        ["The start time differs", "the same as the local " + c("ERR_REUSED")],
+        ["The kernel refuses", c("ERR_PERM") + " or " + c("ERR_ACCESS") + ", as in the local case"],
+        ["Anything else", "a short text taken from the command, cleaned of control characters"],
+        ["The link drops during the call", c("connection lost: outcome unknown") + ": the action is <b>never retried</b>, because it may have been done"],
+    ], "«TAB» — Results of a remote signal") + \
+    p("<b>Protected pids.</b> " + c("protected()") + " returns PID 1 and the processes of the session of the agent: its own shell and its ancestors, up to but not including PID 1 (the " + c("sudo") + " and " + c("sshd") + " that carry it). "
+      "In a subtree they are skipped; chosen directly, the signal is sent after the warning “you are signalling the ngtop session on the server”, like “ngtop itself” locally. PID 1 is always refused. The list is recomputed at the moment of sending, not taken from the dialog. "
+      "Every session has a <b>generation counter</b>: a dialog remembers the generation in which it was opened, and if a reconnection happened since, the action is refused (“the connection changed since the dialog was opened: nothing sent”, or “…since the confirmation: nothing done” for services). "
+      "The processes of <i>other users</i>, which need the double confirmation, are counted with the uid of the server; when it is not known, all of them count as foreign.") + \
+    note("<b>The small window.</b> Locally the pidfd binds the signal to one process (" + rif("Signals: pidfd and start time") + "). On the server this is not possible, because " + c("pidfd") + " is not available everywhere (not on busybox) "
+         "and the shell cannot use it. The check and the " + c("kill") + " are two successive steps of one command: between them, a few milliseconds pass. For a pid to be reused exactly there, thousands of new processes "
+         "must start in that instant. The risk is very small, not zero, and the manual says so.", "Honest limit.") + \
+    p("<b>Services.</b> " + rif("Services without D-Bus") + " describes the verbs: " + c("systemctl --no-ask-password start|stop|restart|enable|disable -- UNIT") + ". A refusal of the authorisation becomes "
+      "“needs root: start ngtop with --sudo” when the status says that the script is not root; the other errors are shortened and cleaned of control characters.")
+
+S_SUDO = p("With " + c("--sudo") + " (" + c("ConnectOptions.sudo") + ") the shell on the server is started by " + c("sudo") + ", on the <b>same single connection</b> as a normal session. "
+           "The difficulty is the password: it must reach " + c("sudo") + ", only when " + c("sudo") + " really asks for it, and the script that follows must never be read by " + c("sudo") + " as a password.", lead=True) + \
+    table(["Step", "What happens"], [
+        ["1. Start", "ngtop always runs " + c("sudo -S -k -p '<random prompt>' env TERM=dumb sh -c '<marker>; exec sh'") + ". " + c("-k") + " ignores a cached ticket, so the behaviour is always the same; the prompt and the marker are random, chosen per session, and different from the nonce of the protocol"],
+        ["2. The marker comes first", "The shell prints the marker: sudo asked nothing (NOPASSWD). Nothing is asked of the user"],
+        ["3. Our prompt comes first", "Sudo wrote the random prompt as a <i>whole line</i> on stderr. Only then ngtop asks for the password on " + sysf("/dev/tty") + " without echo, with the prompt " + c("[sudo] password for USER@HOST: ") + " (or " + c("[sudo] password for HOST: ") + " when the target has no user). Backspace and Ctrl-U edit, Ctrl-C and Ctrl-D cancel at once, other control keys are ignored"],
+        ["4. Send once, wait", "The password is written once. ngtop <b>waits for the marker</b> and only then sends " + c("agent.sh") + ". A second prompt means " + c("sudo: wrong password") + "; the session is closed"],
+        ["5. Something else", "A prompt that is not ours (PAM asking “Verification code:”) and that stays unanswered for 3 s ends with " + c("sudo asked for something ngtop does not recognise: …")],
+        ["6. Errors", c("sudo: a terminal is required (requiretty)") + ", " + c("sudo: not allowed for this user") + ", " + c("sudo: not installed on the server") + ", recognised from the canonical messages of sudo on stderr"],
+        ["Timeouts", "300 s to wait for the prompt in an interactive start (30 s otherwise), 20 s after the password"],
+    ], "«TAB» — The sudo handshake") + \
+    p("<b>Why the marker matters.</b> If ngtop sent the password and the script one after the other, a wrong password would make " + c("sudo") + " read the first lines of the script as new password attempts. "
+      "Those lines would end in the authentication log of the server. By waiting, the script is sent only when sudo has accepted the password and the new shell is reading; "
+      "otherwise nothing of the script leaves the PC. The same reasoning is behind the random prompt: the password is sent only after <i>that</i> prompt, so if sudo does not ask, the password never reaches a shell, and an arbitrary “password:” line is not enough to get it. It is <b>not</b> a defence against a compromised server: the prompt is visible in the command line on the server, and whoever controls the server receives what the user types. The password must be given only to servers the user trusts.") + \
+    p("<b>The password in memory.</b> To reconnect after a drop without asking again, the password is kept in the memory of the process for the whole run. It is overwritten with zeros when it is dropped, and "
+      "while it is held the process is made non-dumpable (no core dump, no ptrace by others). It is never written to a file or to the configuration, never in a log or in an error text, and never in the arguments of a command (it does not appear in " + c("ps") + "). "
+      "After the password is sent, what sudo writes on stderr is never shown, except its own canonical messages. "
+      "The reconnection repeats the handshake with the same password; if the server asks for a password and none is stored (the first start was passwordless), the state becomes Failed with " + c("sudo: a password is required") + " (" + rif("Reconnection and the interval") + ").")
 
 S9 = p("Measured on a VPS over the internet, and on containers with sshd (Alpine, Debian, Debian with systemd) with " + c("scripts/test-remote.sh --measure") + " (alias " + c("scripts/measure-remote.sh") + "), at a 1 s interval. "
        "These are measurements of one setup, not guarantees.", lead=True) + \
@@ -241,6 +298,8 @@ CHAPTER = ("Remote monitoring", [
     ("Reconnection and the interval", S5),
     ("The remote mode of the interface", S6),
     ("Services without D-Bus", S7),
+    ("Actions on the server", S_ACT),
+    ("The sudo handshake", S_SUDO),
     ("Remote security", S8),
     ("Remote measurements", S9),
     ("Why the ssh command", S10),

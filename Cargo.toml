@@ -1,6 +1,6 @@
 [package]
 name = "ngtop"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2024"
 description = "Terminal system monitor: CPU, memory, GPU, network, disks, processes and services in one static binary"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -10,7 +10,7 @@ homepage = "https://ngtop.nicfio.it"
 [dependencies]
 crossterm = "0.29.0"
 ratatui = "0.30.2"
-rustix = { version = "1.1.5", features = ["fs", "param", "process"] }
+rustix = { version = "1.1.5", features = ["fs", "param", "process", "termios"] }
 serde_json = "1.0.154"
 signal-hook = "0.3"
 unicode-width = "0.2.2"

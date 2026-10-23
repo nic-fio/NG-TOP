@@ -1,7 +1,14 @@
 FROM docker.io/library/debian:12
 ENV container=podman
-RUN apt-get update && apt-get install -y --no-install-recommends systemd systemd-sysv dbus openssh-server procps iproute2 \
+RUN apt-get update && apt-get install -y --no-install-recommends systemd systemd-sysv dbus openssh-server procps sudo iproute2 \
  && rm -rf /var/lib/apt/lists/* && useradd -m -s /bin/bash tester && sed -i 's/^tester:!/tester:*/' /etc/shadow \
  && systemctl enable ssh
+# users for the action tests (see Containerfile.debian) and a harmless test service
+RUN for u in sudon sudop; do useradd -m -s /bin/bash $u; done && sed -i 's/^sudon:!/sudon:*/' /etc/shadow \
+ && echo 'sudop:pw-test-1' | chpasswd \
+ && printf 'Defaults logfile=/var/log/sudo.log\nsudon ALL=(ALL) NOPASSWD: ALL\nsudop ALL=(ALL) ALL\n' > /etc/sudoers.d/ngtop \
+ && chmod 440 /etc/sudoers.d/ngtop
+COPY ngtop-test.service /etc/systemd/system/ngtop-test.service
+RUN systemctl enable ngtop-test.service
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use super::{
     Action, ActionError, Backend, BootTimestamps, JournalLine, Scope, SessionInfo, UnitDetail,
-    UnitInfo, parse_blame, parse_journal_json, parse_span_token,
+    UnitInfo, classify_error, parse_blame, parse_journal_json, parse_span_token,
 };
 use crate::source::{CommandOutput, CommandRunner, Source};
 
@@ -23,6 +23,7 @@ pub const REMOTE_USER_MSG: &str = "User units are not available on remote machin
 
 /// Come per il D-Bus: interrogazioni brevi, registro più paziente.
 const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
+const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
 const JOURNAL_TIMEOUT: Duration = Duration::from_secs(15);
 const UNIT_FILES_TTL: Duration = Duration::from_secs(60);
 const PID_TTL: Duration = Duration::from_secs(10);
@@ -273,8 +274,41 @@ impl Backend for RemoteBackend {
         Ok(detail_from_props(name, p, boot))
     }
 
-    fn action(&self, _: Scope, _: &str, _: Action) -> Result<(), ActionError> {
-        Err(ActionError::Failed(REMOTE_ACTION_MSG.to_string()))
+    fn action(&self, scope: Scope, name: &str, action: Action) -> Result<(), ActionError> {
+        if scope == Scope::User {
+            return Err(ActionError::Failed(REMOTE_USER_MSG.to_string()));
+        }
+        if !valid_unit_name(name) {
+            return Err(ActionError::Failed("invalid unit name".to_string()));
+        }
+        // Come in locale: start/stop/restart in coda senza attendere il job (`--no-block`,
+        // equivale a StartUnit con "replace"); enable/disable senza `--now`.
+        let verb = match action {
+            Action::Start => "start",
+            Action::Stop => "stop",
+            Action::Restart => "restart",
+            Action::Enable => "enable",
+            Action::Disable => "disable",
+        };
+        let mut argv = vec!["systemctl", "--no-ask-password", "--no-pager"];
+        if matches!(action, Action::Start | Action::Stop | Action::Restart) {
+            argv.push("--no-block");
+        }
+        argv.extend([verb, "--", name]);
+        if matches!(action, Action::Enable | Action::Disable)
+            && let Ok(mut g) = self.unit_files.lock()
+        {
+            // Cache scaduta: il prossimo elenco rilegge gli stati.
+            *g = None;
+        }
+        let out = self
+            .exec(&argv, ACTION_TIMEOUT)
+            .map_err(ActionError::Failed)?;
+        if out.status == Some(0) {
+            return Ok(());
+        }
+        let root = self.src.remote_status().is_some_and(|s| s.root);
+        Err(action_error(&out.stderr, root))
     }
 
     fn boot_times(&self) -> Result<BootTimestamps, String> {
@@ -418,6 +452,31 @@ fn first_line(stderr: &[u8], default: &str) -> String {
         .find(|l| !l.trim().is_empty())
         .map(|l| l.trim().to_string())
         .unwrap_or_else(|| default.to_string())
+}
+
+/// Testo dell'ultima riga significativa di stderr, senza caratteri di controllo.
+fn last_line(stderr: &[u8]) -> String {
+    let t = String::from_utf8_lossy(stderr);
+    let l = t
+        .lines()
+        .rev()
+        .map(|l| l.chars().filter(|c| !c.is_control()).collect::<String>())
+        .map(|l| l.trim().to_string())
+        .find(|l| !l.is_empty());
+    l.unwrap_or_else(|| "systemctl failed".to_string())
+}
+
+/// Traduce l'errore di `systemctl` nello stesso modo del backend locale.
+fn action_error(stderr: &[u8], root: bool) -> ActionError {
+    let text = String::from_utf8_lossy(stderr);
+    let l = text.to_lowercase();
+    if l.contains("not found") || l.contains("not loaded") || l.contains("no such file") {
+        return ActionError::Failed("unit not found".to_string());
+    }
+    if matches!(classify_error(&text), ActionError::Denied) && !root {
+        return ActionError::Failed("needs root: start ngtop with --sudo".to_string());
+    }
+    ActionError::Failed(last_line(stderr))
 }
 
 fn str_of(v: &serde_json::Value, k: &str) -> String {
@@ -716,7 +775,7 @@ mod tests {
     }
 
     /// Sorgente finta: file in memoria.
-    struct FakeSrc(HashMap<String, String>);
+    struct FakeSrc(HashMap<String, String>, bool);
     impl Source for FakeSrc {
         fn read(&self, p: &Path) -> io::Result<Vec<u8>> {
             self.0
@@ -745,6 +804,9 @@ mod tests {
                 hostname: None,
                 latency_ms: None,
                 last_bytes: 0,
+                root: self.1,
+                generation: 0,
+                uid: None,
                 state: crate::source::RemoteState::Connected,
             })
         }
@@ -806,7 +868,7 @@ mod tests {
             "/proc/stat".to_string(),
             "cpu 1 2 3\nbtime 1700000000\n".to_string(),
         );
-        Arc::new(FakeSrc(m))
+        Arc::new(FakeSrc(m, false))
     }
 
     fn modern() -> Arc<FakeRun> {
@@ -995,10 +1057,8 @@ mod tests {
             Action::Disable,
         ] {
             assert_eq!(
-                b.action(Scope::System, "a.service", a),
-                Err(ActionError::Failed(
-                    "Not available on remote machines in this version".into()
-                ))
+                b.action(Scope::User, "a.service", a),
+                Err(ActionError::Failed(REMOTE_USER_MSG.into()))
             );
         }
         assert!(b.unit_detail(Scope::System, "--now; rm").is_err());
@@ -1132,7 +1192,7 @@ mod tests {
     #[test]
     fn scelta_del_backend_e_systemd() {
         assert!(super::super::systemd_present_in(&*src(), Path::new("/run")));
-        let vuota: Arc<dyn Source> = Arc::new(FakeSrc(HashMap::new()));
+        let vuota: Arc<dyn Source> = Arc::new(FakeSrc(HashMap::new(), false));
         assert!(!super::super::systemd_present_in(
             &*vuota,
             Path::new("/run")
@@ -1141,6 +1201,100 @@ mod tests {
         // Remoto → RemoteBackend: le azioni rispondono con il testo dedicato.
         let b = super::super::backend_for(&src(), &run);
         assert!(b.action(Scope::System, "a.service", Action::Start).is_err());
+    }
+
+    fn src_root() -> Arc<dyn Source> {
+        Arc::new(FakeSrc(HashMap::new(), true))
+    }
+
+    #[test]
+    fn azioni_argv_esatto() {
+        let r = FakeRun::new(vec![("systemctl", 0, String::new())]);
+        let b = RemoteBackend::new(src(), r.clone());
+        for (a, want) in [
+            (
+                Action::Start,
+                "systemctl --no-ask-password --no-pager --no-block start -- a.service",
+            ),
+            (
+                Action::Stop,
+                "systemctl --no-ask-password --no-pager --no-block stop -- a.service",
+            ),
+            (
+                Action::Restart,
+                "systemctl --no-ask-password --no-pager --no-block restart -- a.service",
+            ),
+            (
+                Action::Enable,
+                "systemctl --no-ask-password --no-pager enable -- a.service",
+            ),
+            (
+                Action::Disable,
+                "systemctl --no-ask-password --no-pager disable -- a.service",
+            ),
+        ] {
+            assert_eq!(b.action(Scope::System, "a.service", a), Ok(()));
+            assert_eq!(r.calls.lock().unwrap().last().unwrap(), want);
+        }
+    }
+
+    #[test]
+    fn azioni_nomi_non_validi_e_user_non_eseguono() {
+        let r = FakeRun::new(vec![("systemctl", 0, String::new())]);
+        let b = RemoteBackend::new(src(), r.clone());
+        for n in ["", "a b", "a;rm -rf /", "$(x)", "a\nb\n"] {
+            assert!(b.action(Scope::System, n, Action::Start).is_err(), "{n}");
+        }
+        assert_eq!(
+            b.action(Scope::User, "a.service", Action::Stop),
+            Err(ActionError::Failed(REMOTE_USER_MSG.to_string()))
+        );
+        assert!(r.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn azioni_errori() {
+        let needs = ActionError::Failed("needs root: start ngtop with --sudo".to_string());
+        for msg in [
+            "Failed to start a.service: Interactive authentication required.",
+            "Failed to stop a.service: Access denied",
+            "Failed to enable unit: Not authorized",
+        ] {
+            let r = FakeRun::new(vec![("systemctl", 1, msg.to_string())]);
+            let b = RemoteBackend::new(src(), r);
+            assert_eq!(
+                b.action(Scope::System, "a.service", Action::Start),
+                Err(needs.clone())
+            );
+            // Con i privilegi il rifiuto resta il testo di systemctl.
+            let r = FakeRun::new(vec![("systemctl", 1, msg.to_string())]);
+            let b = RemoteBackend::new(src_root(), r);
+            assert_eq!(
+                b.action(Scope::System, "a.service", Action::Start),
+                Err(ActionError::Failed(msg.to_string()))
+            );
+        }
+        let r = FakeRun::new(vec![(
+            "systemctl",
+            5,
+            "Failed to start x.service: Unit x.service not found.".to_string(),
+        )]);
+        let b = RemoteBackend::new(src(), r);
+        assert_eq!(
+            b.action(Scope::System, "x.service", Action::Start),
+            Err(ActionError::Failed("unit not found".to_string()))
+        );
+        // Ultima riga significativa, senza caratteri di controllo.
+        let r = FakeRun::new(vec![(
+            "systemctl",
+            1,
+            "warning\n\x1b[31mJob failed\x07\n\n".to_string(),
+        )]);
+        let b = RemoteBackend::new(src(), r);
+        assert_eq!(
+            b.action(Scope::System, "a.service", Action::Stop),
+            Err(ActionError::Failed("[31mJob failed".to_string()))
+        );
     }
 
     #[test]

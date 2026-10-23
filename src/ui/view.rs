@@ -89,7 +89,19 @@ pub fn draw(frame: &mut Frame, app: &mut App, sys: &System) {
         }
     }
     if app.help {
-        let lines = help_lines(area.width as usize);
+        let mut lines = help_lines(area.width as usize);
+        if let Some(st) = sys.remote_status() {
+            lines.push("Remote".to_string());
+            lines.push(format!(
+                "  Signals, nice and services act on {}.",
+                st.target
+            ));
+            lines.push(if st.root {
+                "  Commands run as root on the server (--sudo).".to_string()
+            } else {
+                "  Not root on the server: start ngtop with --sudo to act as root.".to_string()
+            });
+        }
         let title = match sys.remote_status() {
             Some(st) => format!("Help — {}", remote_name(&st)),
             None => "Help".to_string(),
@@ -128,7 +140,11 @@ fn first_line(s: &str) -> &str {
 /// Nome mostrato per la macchina remota: il suo hostname se noto, altrimenti la destinazione.
 fn remote_name(st: &RemoteStatus) -> String {
     match st.hostname.as_deref().filter(|h| !h.is_empty()) {
-        Some(h) => h.to_string(),
+        // il nome viene dal server: niente caratteri di controllo nel terminale
+        Some(h) => h
+            .chars()
+            .map(|c| if c.is_control() { '?' } else { c })
+            .collect(),
         None => st.target.clone(),
     }
 }
@@ -170,7 +186,11 @@ fn draw_tabs(buf: &mut Buffer, area: Rect, app: &mut App, sys: &System) {
     let (lead, accent, right);
     match sys.remote_status() {
         Some(st) => {
-            lead = format!("⇄ {} ", remote_name(&st));
+            lead = if st.root {
+                format!("⇄ {} root ", remote_name(&st))
+            } else {
+                format!("⇄ {} ", remote_name(&st))
+            };
             accent = match (&st.state, st.latency_ms) {
                 (RemoteState::Connected, Some(ms)) => Some((format!("{ms} ms"), latency_color(ms))),
                 (RemoteState::Connected, None) => None,
@@ -242,6 +262,9 @@ mod tests {
             hostname: Some("srv1".into()),
             latency_ms: latency,
             last_bytes: 0,
+            root: false,
+            generation: 0,
+            uid: None,
             state,
         }
     }

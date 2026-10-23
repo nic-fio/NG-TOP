@@ -32,8 +32,20 @@ fn main() {
 /// Radici di lettura per `--dump` / `--snapshot`: la macchina remota se c'è un TARGET
 /// (posizionale o `--host`), altrimenti questa.
 fn roots_for(args: &[String]) -> Roots {
+    let flag = args.iter().any(|a| a == "--sudo");
     match ngtop::config::find_target(args) {
-        Ok(Some(t)) => connect_remote(&t),
+        Ok(Some(t)) => {
+            // sudo: opzione, oppure chiave `sudo = true` del file predefinito (errori ignorati)
+            let sudo = flag
+                || ngtop::config::default_path_from_env()
+                    .and_then(|p| ngtop::config::load(&p, false).ok())
+                    .is_some_and(|(c, _)| c.sudo);
+            connect_remote(&t, sudo)
+        }
+        Ok(None) if flag => {
+            eprintln!("ngtop: --sudo needs a TARGET\nTry 'ngtop --help'.");
+            std::process::exit(2);
+        }
         Ok(None) => Roots::local(),
         Err(e) => {
             eprintln!("ngtop: {e}\nTry 'ngtop --help'.");
@@ -44,15 +56,24 @@ fn roots_for(args: &[String]) -> Roots {
 
 /// Apre la connessione ssh PRIMA di toccare il terminale (ssh può chiedere password o host key).
 /// Errore: messaggio chiaro su stderr ed exit 2.
-fn connect_remote(target: &str) -> Roots {
+fn connect_remote(target: &str, sudo: bool) -> Roots {
     use ngtop::remote::{ConnectOptions, Target};
     let t = Target::parse(target).unwrap_or_else(|e| {
         eprintln!("ngtop: invalid TARGET '{target}': {e}");
         std::process::exit(2);
     });
     eprintln!("Connecting to {}…", t.display());
-    match ngtop::remote::connect(&t, &ConnectOptions::default()) {
-        Ok((src, run)) => Roots::remote(src, run),
+    match ngtop::remote::connect(
+        &t,
+        &ConnectOptions {
+            sudo,
+            ..ConnectOptions::default()
+        },
+    ) {
+        Ok((src, run)) => {
+            let act = ngtop::remote::actions_for(&src);
+            Roots::remote(src, run).with_actions(act)
+        }
         Err(e) => {
             // l'errore contiene l'ultima riga di stderr di ssh, che può venire dal server
             let e: String = e
@@ -115,8 +136,12 @@ fn interactive(args: &[String]) {
     };
     let effective = config::merge(file.clone(), &cli);
     // Con un TARGET (riga di comando o file) ci si collega ora, prima della modalità raw.
+    if cli.sudo && effective.host.is_none() {
+        eprintln!("ngtop: --sudo needs a TARGET\nTry 'ngtop --help'.");
+        std::process::exit(2);
+    }
     let roots = match &effective.host {
-        Some(h) => connect_remote(h),
+        Some(h) => connect_remote(h, effective.sudo),
         None => Roots::local(),
     };
     let colors = ngtop::ui::theme::ColorMode::detect(
@@ -190,6 +215,7 @@ fn snapshot(args: &[String], i: usize) {
     let mut sys = System::new(roots);
     let mut app = ngtop::ui::app::App::new((w, h), ngtop::ui::hostname(&sys));
     app.remote = sys.remote_status().is_some();
+    app.proc.act = sys.roots.act.clone();
     app.section = section;
     if app.remote {
         app.servizi = ngtop::ui::services_for(&sys);

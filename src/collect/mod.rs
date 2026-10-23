@@ -29,7 +29,10 @@ use mem::MemInfo;
 use net::NetInfo;
 use process::{ProcPrev, Process};
 
-use crate::source::{CommandRunner, LocalRunner, LocalSource, RemoteStatus, Source};
+use crate::source::{
+    CommandRunner, LocalActions, LocalRunner, LocalSource, NoActions, ProcActions, RemoteStatus,
+    Source,
+};
 
 /// Radici del filesystem da cui si legge (nei test sono cartelle finte) e sorgente delle letture:
 /// ogni lettura passa da `src`, ogni comando esterno da `run`.
@@ -40,6 +43,8 @@ pub struct Roots {
     pub etc: PathBuf,
     pub src: Arc<dyn Source>,
     pub run: Arc<dyn CommandRunner>,
+    /// Segnali e nice sui processi del sistema osservato.
+    pub act: Arc<dyn ProcActions>,
 }
 
 impl std::fmt::Debug for Roots {
@@ -61,6 +66,7 @@ impl Roots {
     /// Radici personalizzate (fixture dei test), sorgente locale.
     pub fn with_dirs(proc: PathBuf, sys: PathBuf, etc: PathBuf) -> Roots {
         Roots {
+            act: Arc::new(LocalActions::new(proc.clone())),
             proc,
             sys,
             etc,
@@ -69,13 +75,21 @@ impl Roots {
         }
     }
 
-    /// /proc, /sys, /etc della macchina remota raggiunta da `src` e `run`.
+    /// /proc, /sys, /etc della macchina remota raggiunta da `src` e `run`. Le azioni sui processi
+    /// restano rifiutate ([`NoActions`], mai quelle locali) finché non si passano con [`Roots::with_actions`].
     pub fn remote(src: Arc<dyn Source>, run: Arc<dyn CommandRunner>) -> Roots {
         Roots {
             src,
             run,
+            act: Arc::new(NoActions),
             ..Roots::local()
         }
+    }
+
+    /// Sostituisce le azioni sui processi (quelle della sorgente remota).
+    pub fn with_actions(mut self, act: Arc<dyn ProcActions>) -> Roots {
+        self.act = act;
+        self
     }
 }
 

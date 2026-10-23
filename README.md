@@ -38,6 +38,7 @@ ngtop --help                # all options
 | `--config FILE` | use a different configuration file |
 | `--host TARGET` | monitor a remote machine (same as giving `TARGET`) |
 | `--local` | monitor this machine even if the configuration file has `host` |
+| `--sudo` | with a `TARGET`: run the commands on the server with sudo (see Remote machines) |
 | `--dump [TARGET]` | diagnostics: print a text summary and exit |
 
 Command-line options take precedence over the configuration file.
@@ -79,6 +80,7 @@ colors = "auto"          # "auto", "truecolor" or "256"
 temperature = "C"        # "C" or "F"
 left_width = 40          # % of the left column of the Overview (20–70)
 # host = "alex@server"   # monitor this machine over ssh (see Remote machines)
+# sudo = true            # with host: run the remote commands with sudo (same as --sudo)
 ```
 
 Colors are chosen from `COLORTERM`/`TERM`: truecolor if `COLORTERM` contains `truecolor` or
@@ -107,8 +109,18 @@ ngtop --snapshot 120x40 alex@server
   ngtop reconnects by itself.
 - If an update takes longer than the refresh interval, ngtop widens the interval by one step
   (250 → 500 → 1000 → 2000 → 5000 ms) and says so in the status line.
-- In this version signals, nice and the start/stop/restart/enable actions of Services are not
-  available on remote machines (the status line says so).
+- Signals (`F9`, `k`), nice (`F7`/`F8`) and the start/stop/restart/enable actions of system
+  services work on the remote machine too, with the same confirmations as locally; the dialogs
+  say which machine they act on (`On: alex@server`). The pid is checked against its start time
+  right before acting, so a reused pid is never hit; PID 1 and the ngtop session on the server
+  are protected. Without the right permissions the server refuses ("permission denied",
+  "needs root: start ngtop with --sudo", "root is needed to lower the nice value").
+  User services (`u`) stay unavailable remotely.
+- `--sudo` (or `sudo = true` in the configuration file, only with a `TARGET`; it also works with
+  `--dump`) runs the commands on the server with sudo, so the actions run as root; the top bar
+  then shows `root`. If sudo needs a password, ngtop asks for it before the interface starts
+  (not echoed). It is kept in memory only, to reconnect, and never written anywhere. `--sudo`
+  without a `TARGET` is an error.
 
 ## Known limits
 
