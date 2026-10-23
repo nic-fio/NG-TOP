@@ -21,11 +21,11 @@ use ngtop::ui::snapshot::{render_app, to_ansi, to_text};
 
 fn fixture_system() -> System {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/snap_b");
-    let mut s = System::new(Roots {
-        proc: base.join("proc"),
-        sys: base.join("sys"),
-        etc: base.join("etc"),
-    });
+    let mut s = System::new(Roots::with_dirs(
+        base.join("proc"),
+        base.join("sys"),
+        base.join("etc"),
+    ));
     s.clock_ticks = 100;
     s.page_size = 4096;
     s.refresh_with_dt(0.0);

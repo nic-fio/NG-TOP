@@ -3,11 +3,11 @@ from build import arrow, box, c, diamond, fig, flow, note, p, path, rif, sysf, t
 S1 = p("A collector is a function that reads a few small text files and returns a plain value. All of them follow "
        "the same four rules, which is why a missing file never becomes an error on screen.", lead=True) + \
     table(["Rule", "In the code"], [
-        ["The root is a parameter", "Paths are built from " + c("roots.proc") + ", " + c("roots.sys") + " and "
+        ["The root is a parameter", "Reads go through " + c("roots.src") + ", never straight to the disk. Paths are built from " + c("roots.proc") + ", " + c("roots.sys") + " and "
          + c("roots.etc") + ". On a real machine they are " + c("/proc") + ", " + c("/sys") + ", " + c("/etc")
          + "; in a test they point into " + c("tests/fixtures/")],
-        ["Reading cannot fail", c("read_text()") + " in " + c("src/collect/mod.rs") + " returns " + c("Option<String>")
-         + ": " + c("None") + " if the file is missing or unreadable, and invalid UTF-8 is replaced, not rejected"],
+        ["Reading cannot fail", c("read_text()") + " of " + c("Source") + " (" + c("src/source/mod.rs") + ") returns " + c("Option<String>")
+         + ": " + c("None") + " if the file is missing or unreadable, and invalid UTF-8 is replaced, not rejected. Collectors call it on " + c("roots.src") + " (" + rif("Sources and runners") + ")"],
         ["Parsing is separate from reading", "Each file has a " + c("parse_*()") + " function that takes text. The tests "
          "feed it strings, so no file is needed"],
         ["Rates need two samples", "A rate is " + c("(now − before) / dt") + ". The first sample has no “before”, so "

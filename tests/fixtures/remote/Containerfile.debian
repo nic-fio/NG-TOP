@@ -1,0 +1,6 @@
+FROM docker.io/library/debian:12
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server procps && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /run/sshd && useradd -m -s /bin/bash tester && passwd -u tester >/dev/null 2>&1 || true
+RUN sed -i 's/^tester:!/tester:*/' /etc/shadow
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]

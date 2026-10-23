@@ -203,7 +203,10 @@ fn state_line(g: &Gpu) -> Option<String> {
             Some("suspended (D3cold) — not queried, to avoid waking it".into())
         }
         GpuState::Suspended => Some("suspended — not queried, to avoid waking it".into()),
-        GpuState::Unsupported => Some(format!("support coming soon (driver {})", g.driver)),
+        GpuState::Unsupported if g.driver == "nvidia" => {
+            Some(format!("support coming soon (driver {})", g.driver))
+        }
+        GpuState::Unsupported => Some(format!("not supported (driver {})", g.driver)),
     }
 }
 
@@ -299,8 +302,10 @@ pub(crate) fn draw_compact_line(buf: &mut Buffer, r: Rect, app: &App, sys: &Syst
     if let Some(t) = state_line(g) {
         let short = if g.state == GpuState::Suspended {
             "suspended"
-        } else {
+        } else if g.driver == "nvidia" {
             "coming soon"
+        } else {
+            "not supported"
         };
         let _ = t;
         putn(

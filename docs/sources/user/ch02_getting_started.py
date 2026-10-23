@@ -59,7 +59,8 @@ S_QUIT = p("Three ways to leave ngtop: " + key("q") + ", " + key("F10") + " and 
     p("A confirmation window (for a signal or for a service action) takes the keys first. In that case " + key("Esc") +
       " closes the window, and then " + key("q") + " leaves the program.")
 
-S_SSH = p("ngtop is a good tool for a server you reach over SSH: it is a single file, so you can copy it there.", lead=True) + \
+S_SSH = p("ngtop is a good tool for a server you reach over SSH. There are two ways: copy the file there and run it, or run ngtop on "
+          "your own PC and let it look at the server (" + rif("Monitoring another machine") + "). This section is about the first way.", lead=True) + \
     term("""$ scp ngtop user@server:
 $ ssh user@server
 $ chmod +x ngtop

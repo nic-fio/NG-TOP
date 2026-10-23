@@ -6,6 +6,9 @@
 
 use std::path::Path;
 
+use crate::collect::Roots;
+use crate::source::Source;
+
 /// Regola POSIX "std offset dst [offset],Mm.w.d[/h],Mm.w.d[/h]".
 #[derive(Debug, Clone, PartialEq)]
 pub struct PosixTz {
@@ -335,12 +338,18 @@ pub fn parse_tzif(b: &[u8]) -> Option<Tz> {
 }
 
 impl Tz {
-    /// Carica il fuso: TZ se impostata, altrimenti `<etc>/localtime`; in caso di errore UTC.
-    pub fn load(etc: &Path) -> Tz {
-        Self::load_with(std::env::var("TZ").ok().as_deref(), etc)
+    /// Carica il fuso: TZ se impostata (solo per la macchina locale), altrimenti
+    /// `<etc>/localtime` letto dalla sorgente; in caso di errore UTC.
+    pub fn load(roots: &Roots) -> Tz {
+        let env = if roots.src.remote_status().is_none() {
+            std::env::var("TZ").ok()
+        } else {
+            None
+        };
+        Self::load_with(env.as_deref(), &*roots.src, &roots.etc)
     }
 
-    pub fn load_with(tz_env: Option<&str>, etc: &Path) -> Tz {
+    pub fn load_with(tz_env: Option<&str>, src: &dyn Source, etc: &Path) -> Tz {
         if let Some(v) = tz_env
             .map(|v| v.trim_start_matches(':'))
             .filter(|v| !v.is_empty())
@@ -350,7 +359,8 @@ impl Tz {
             }
             // Percorso assoluto di un file TZif (es. TZ=:/etc/localtime).
             if v.starts_with('/') {
-                return std::fs::read(v)
+                return src
+                    .read(Path::new(v))
                     .ok()
                     .and_then(|b| parse_tzif(&b))
                     .unwrap_or(Tz::Utc);
@@ -362,14 +372,14 @@ impl Tz {
                     "/usr/share/lib/zoneinfo",
                 ] {
                     let path = Path::new(dir).join(v.trim_start_matches('/'));
-                    if let Some(tz) = std::fs::read(path).ok().and_then(|b| parse_tzif(&b)) {
+                    if let Some(tz) = src.read(&path).ok().and_then(|b| parse_tzif(&b)) {
                         return tz;
                     }
                 }
             }
             return parse_posix(v).map_or(Tz::Utc, Tz::Posix);
         }
-        std::fs::read(etc.join("localtime"))
+        src.read(&etc.join("localtime"))
             .ok()
             .and_then(|b| parse_tzif(&b))
             .unwrap_or(Tz::Utc)
@@ -415,6 +425,7 @@ impl Tz {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::source::LocalSource;
 
     #[test]
     fn posix_europa() {
@@ -544,10 +555,16 @@ mod tests {
     #[test]
     fn env_tz() {
         let etc = Path::new("/nonexistent-ngtop");
-        assert_eq!(Tz::load_with(Some("UTC"), etc), Tz::Utc);
-        assert_eq!(Tz::load_with(None, etc), Tz::Utc);
-        assert_eq!(Tz::load_with(Some("JST-9"), etc).offset_at(0), 32400);
-        assert_eq!(Tz::load_with(Some("../../etc/passwd"), etc), Tz::Utc);
+        assert_eq!(Tz::load_with(Some("UTC"), &LocalSource, etc), Tz::Utc);
+        assert_eq!(Tz::load_with(None, &LocalSource, etc), Tz::Utc);
+        assert_eq!(
+            Tz::load_with(Some("JST-9"), &LocalSource, etc).offset_at(0),
+            32400
+        );
+        assert_eq!(
+            Tz::load_with(Some("../../etc/passwd"), &LocalSource, etc),
+            Tz::Utc
+        );
         // percorso assoluto, con o senza ':'
         let dir = std::env::temp_dir().join(format!("ngtop-tz-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -563,9 +580,12 @@ mod tests {
         b.extend(b"AAA\0");
         let _ = std::fs::write(&f, &b);
         let p = f.to_string_lossy().to_string();
-        assert_eq!(Tz::load_with(Some(&p), etc).offset_at(0), 7200);
         assert_eq!(
-            Tz::load_with(Some(&format!(":{p}")), etc).offset_at(0),
+            Tz::load_with(Some(&p), &LocalSource, etc).offset_at(0),
+            7200
+        );
+        assert_eq!(
+            Tz::load_with(Some(&format!(":{p}")), &LocalSource, etc).offset_at(0),
             7200
         );
         let _ = std::fs::remove_dir_all(&dir);

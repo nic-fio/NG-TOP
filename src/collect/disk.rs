@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use super::{Roots, read_text};
+use super::Roots;
+use crate::source::Source;
 
 /// Contatori grezzi di una riga di /proc/diskstats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -155,15 +156,15 @@ pub fn parse_diskstats_full(text: &str) -> Vec<(String, DiskStat)> {
 }
 
 /// Dispositivo fisico intero (non partizione, loop, ram, device-mapper…).
-pub fn is_physical(name: &str, sys: &Path) -> bool {
+pub fn is_physical(src: &dyn Source, name: &str, sys: &Path) -> bool {
     const SKIP: [&str; 7] = ["loop", "ram", "zram", "dm-", "md", "sr", "fd"];
     if SKIP.iter().any(|p| name.starts_with(p)) {
         return false;
     }
     let block = sys.join("block");
-    if block.is_dir() {
+    if src.read_dir(&block).is_ok() {
         // Le partizioni compaiono solo dentro la cartella del disco, non in /sys/block.
-        block.join(name).exists()
+        src.exists(&block.join(name))
     } else {
         // Ripiego sul nome: sdXN, nvme0n1pN, mmcblk0pN sono partizioni.
         !is_partition_name(name)
@@ -286,7 +287,9 @@ pub fn parse_mountinfo(text: &str) -> Vec<Mount> {
 
 /// Mount dei filesystem reali da /proc/self/mountinfo.
 pub fn read_mounts(roots: &Roots) -> Vec<Mount> {
-    read_text(&roots.proc.join("self/mountinfo"))
+    roots
+        .src
+        .read_text(&roots.proc.join("self/mountinfo"))
         .map(|t| parse_mountinfo(&t))
         .unwrap_or_default()
 }
@@ -308,22 +311,26 @@ pub trait FsProbe: Send + Sync + 'static {
 }
 
 /// statvfs reale (può bloccarsi a lungo su NFS: va chiamata solo da un thread dedicato).
-pub struct StatvfsProbe;
+pub struct StatvfsProbe {
+    pub src: Arc<dyn Source>,
+}
 
 impl FsProbe for StatvfsProbe {
     fn probe(&self, mountpoint: &str) -> Option<FsSpace> {
-        let st = rustix::fs::statvfs(mountpoint).ok()?;
-        let fr = st.f_frsize;
-        let total = st.f_blocks.saturating_mul(fr);
-        if total == 0 {
+        let st = self.src.statvfs(Path::new(mountpoint)).ok()?;
+        if st.total == 0 {
             return None;
         }
         Some(FsSpace {
-            total,
-            used: st.f_blocks.saturating_sub(st.f_bfree).saturating_mul(fr),
-            avail: st.f_bavail.saturating_mul(fr),
-            files: st.f_files,
-            ffree: st.f_ffree,
+            total: st.total,
+            used: if st.used > 0 {
+                st.used
+            } else {
+                st.total.saturating_sub(st.free)
+            },
+            avail: st.free,
+            files: st.files,
+            ffree: st.ffree,
         })
     }
 }
@@ -331,13 +338,13 @@ impl FsProbe for StatvfsProbe {
 /// Misura da un file `statvfs.json` (usata con `--roots`: non si interroga la macchina vera).
 /// Formato: `{"/": {"total": N, "free": N, "files": N, "ffree": N}, ...}`; mount assente → `None`.
 pub struct FileProbe {
+    pub src: Arc<dyn Source>,
     pub path: PathBuf,
 }
 
 impl FsProbe for FileProbe {
     fn probe(&self, mountpoint: &str) -> Option<FsSpace> {
-        let v: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&self.path).ok()?).ok()?;
+        let v: serde_json::Value = serde_json::from_str(&self.src.read_text(&self.path)?).ok()?;
         let e = v.get(mountpoint)?;
         let n = |k: &str| e.get(k).and_then(serde_json::Value::as_u64);
         let (total, free) = (n("total")?, n("free")?);
@@ -359,7 +366,10 @@ pub fn read_filesystems(roots: &Roots) -> Vec<Filesystem> {
     read_mounts(roots)
         .into_iter()
         .filter_map(|m| {
-            let sp = StatvfsProbe.probe(&m.mountpoint)?;
+            let sp = StatvfsProbe {
+                src: Arc::clone(&roots.src),
+            }
+            .probe(&m.mountpoint)?;
             Some(make_fs(&m, Some(sp), false))
         })
         .collect()
@@ -429,13 +439,13 @@ impl FsMonitor {
     }
 
     /// Monitor che legge `statvfs.json` (vedi `FileProbe`) invece del sistema vero.
-    pub fn from_file(path: PathBuf) -> Self {
-        Self::new(Arc::new(FileProbe { path }), FS_TIMEOUT)
+    pub fn from_file(src: Arc<dyn Source>, path: PathBuf) -> Self {
+        Self::new(Arc::new(FileProbe { src, path }), FS_TIMEOUT)
     }
 
     /// Monitor con statvfs reale e il tempo massimo standard.
-    pub fn real() -> Self {
-        Self::new(Arc::new(StatvfsProbe), FS_TIMEOUT)
+    pub fn real(src: Arc<dyn Source>) -> Self {
+        Self::new(Arc::new(StatvfsProbe { src }), FS_TIMEOUT)
     }
 
     /// Imposta l'elenco dei mount: avvia i thread dei nuovi e chiude quelli spariti.
@@ -539,33 +549,36 @@ impl FsMonitor {
     }
 }
 
-fn first_file(dir: &Path, prefix: &str, file: &str) -> Option<PathBuf> {
-    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+fn first_file(src: &dyn Source, dir: &Path, prefix: &str, file: &str) -> Option<PathBuf> {
+    let mut v: Vec<PathBuf> = src
+        .read_dir(dir)
         .ok()?
-        .flatten()
-        .filter(|e| e.file_name().to_string_lossy().starts_with(prefix))
-        .map(|e| e.path().join(file))
-        .filter(|p| p.exists())
+        .into_iter()
+        .filter(|n| n.to_string_lossy().starts_with(prefix))
+        .map(|n| dir.join(n).join(file))
+        .filter(|p| src.exists(p))
         .collect();
     v.sort();
     v.into_iter().next()
 }
 
 /// File di temperatura hwmon del disco (nvme, drivetemp), se esiste.
-fn find_disk_temp(sys: &Path, name: &str) -> Option<PathBuf> {
+fn find_disk_temp(src: &dyn Source, sys: &Path, name: &str) -> Option<PathBuf> {
     let dev = sys.join("block").join(name).join("device");
-    first_file(&dev.join("hwmon"), "hwmon", "temp1_input")
-        .or_else(|| first_file(&dev, "hwmon", "temp1_input"))
+    first_file(src, &dev.join("hwmon"), "hwmon", "temp1_input")
+        .or_else(|| first_file(src, &dev, "hwmon", "temp1_input"))
 }
 
 /// Modello, tipo e dimensione di un disco da /sys/block.
-fn read_disk_static(sys: &Path, name: &str) -> (String, &'static str, u64) {
+fn read_disk_static(src: &dyn Source, sys: &Path, name: &str) -> (String, &'static str, u64) {
     let base = sys.join("block").join(name);
-    let model = read_text(&base.join("device/model"))
+    let model = src
+        .read_text(&base.join("device/model"))
         .map(|m| m.split_whitespace().collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
-    let rotational =
-        read_text(&base.join("queue/rotational")).and_then(|t| t.trim().parse::<u8>().ok());
+    let rotational = src
+        .read_text(&base.join("queue/rotational"))
+        .and_then(|t| t.trim().parse::<u8>().ok());
     let kind = if name.starts_with("nvme") {
         "NVMe"
     } else {
@@ -575,7 +588,8 @@ fn read_disk_static(sys: &Path, name: &str) -> (String, &'static str, u64) {
             None => "",
         }
     };
-    let size = read_text(&base.join("size"))
+    let size = src
+        .read_text(&base.join("size"))
         .and_then(|t| t.trim().parse::<u64>().ok())
         .unwrap_or(0)
         .saturating_mul(512);
@@ -584,13 +598,15 @@ fn read_disk_static(sys: &Path, name: &str) -> (String, &'static str, u64) {
 
 /// Aggiorna le velocità di I/O dei dischi fisici.
 pub fn refresh_io(info: &mut DiskInfo, roots: &Roots, dt: f64) {
-    let stats = read_text(&roots.proc.join("diskstats"))
+    let stats = roots
+        .src
+        .read_text(&roots.proc.join("diskstats"))
         .map(|t| parse_diskstats_full(&t))
         .unwrap_or_default();
     let old = std::mem::take(&mut info.io);
     info.io = stats
         .into_iter()
-        .filter(|(n, _)| is_physical(n, &roots.sys))
+        .filter(|(n, _)| is_physical(&*roots.src, n, &roots.sys))
         .map(|(name, st)| {
             let (rb, wb) = (
                 st.sectors_read.saturating_mul(512),
@@ -604,16 +620,16 @@ pub fn refresh_io(info: &mut DiskInfo, roots: &Roots, dt: f64) {
             let rates = prev.map(|p| st.rates_since(&p.raw, dt)).unwrap_or_default();
             let (model, kind, size) = match prev {
                 Some(p) => (p.model.clone(), p.kind, p.size),
-                None => read_disk_static(&roots.sys, &name),
+                None => read_disk_static(&*roots.src, &roots.sys, &name),
             };
             let temp_src = match prev.and_then(|p| p.temp_src.clone()) {
                 Some(src) => Some(src),
-                None => Some(find_disk_temp(&roots.sys, &name)),
+                None => Some(find_disk_temp(&*roots.src, &roots.sys, &name)),
             };
             let temp = temp_src
                 .as_ref()
                 .and_then(|p| p.as_deref())
-                .and_then(super::sensors::read_temp);
+                .and_then(|p| super::sensors::read_temp(&*roots.src, p));
             DiskIo {
                 read_rate: rate(rb, prev.map(|p| p.read_bytes)),
                 write_rate: rate(wb, prev.map(|p| p.write_bytes)),
@@ -649,14 +665,14 @@ mod tests {
         assert_eq!(s[0], ("sda".into(), 2000, 800));
         assert_eq!(s.len(), 2);
         let none = Path::new("/nonexistent-ngtop");
-        assert!(is_physical("sda", none));
-        assert!(!is_physical("sda1", none));
-        assert!(is_physical("nvme0n1", none));
-        assert!(!is_physical("nvme0n1p2", none));
-        assert!(!is_physical("loop3", none));
-        assert!(!is_physical("dm-0", none));
-        assert!(is_physical("mmcblk0", none));
-        assert!(!is_physical("mmcblk0p1", none));
+        assert!(is_physical(&crate::source::LocalSource, "sda", none));
+        assert!(!is_physical(&crate::source::LocalSource, "sda1", none));
+        assert!(is_physical(&crate::source::LocalSource, "nvme0n1", none));
+        assert!(!is_physical(&crate::source::LocalSource, "nvme0n1p2", none));
+        assert!(!is_physical(&crate::source::LocalSource, "loop3", none));
+        assert!(!is_physical(&crate::source::LocalSource, "dm-0", none));
+        assert!(is_physical(&crate::source::LocalSource, "mmcblk0", none));
+        assert!(!is_physical(&crate::source::LocalSource, "mmcblk0p1", none));
         assert_eq!(disk_of_source("/dev/nvme0n1p2").as_deref(), Some("nvme0n1"));
         assert_eq!(disk_of_source("/dev/sda1").as_deref(), Some("sda"));
         assert_eq!(disk_of_source("/dev/sdb").as_deref(), Some("sdb"));
@@ -749,11 +765,7 @@ garbage\n";
         std::fs::write(d.join("sys/block/sdb/device/model"), "WDC WD40EFRX\n").unwrap();
         std::fs::write(d.join("sys/block/sdb/queue/rotational"), "1\n").unwrap();
         std::fs::create_dir_all(d.join("proc")).unwrap();
-        let roots = Roots {
-            proc: d.join("proc"),
-            sys: d.join("sys"),
-            etc: d.join("etc"),
-        };
+        let roots = Roots::with_dirs(d.join("proc"), d.join("sys"), d.join("etc"));
         (roots, d)
     }
 
@@ -888,12 +900,17 @@ mod file_probe_tests {
             r#"{"/": {"total": 1000, "free": 250, "files": 10, "ffree": 4}}"#,
         )
         .unwrap();
-        let p = FileProbe { path: f };
+        let src: Arc<dyn Source> = Arc::new(crate::source::LocalSource);
+        let p = FileProbe {
+            src: Arc::clone(&src),
+            path: f,
+        };
         let sp = p.probe("/").unwrap();
         assert_eq!((sp.total, sp.used, sp.avail), (1000, 750, 250));
         assert_eq!((sp.files, sp.ffree), (10, 4));
         assert!(p.probe("/home").is_none());
         let missing = FileProbe {
+            src,
             path: dir.join("nope.json"),
         };
         assert!(missing.probe("/").is_none());

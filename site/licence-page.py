@@ -15,7 +15,7 @@ NAME = "ngtop"
 SITE = "https://ngtop.nicfio.it"
 MAIL = "ngtop@nicfio.it"
 REPO = "https://github.com/nic-fio/NG-TOP"
-CURRENT = "1.0.0"
+CURRENT = "1.5.0"
 # (versions, licence, file published in licences/)
 EARLIER = []
 OFFICIAL = "https://polyformproject.org/licenses/noncommercial/1.0.0"

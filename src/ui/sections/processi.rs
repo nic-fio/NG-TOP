@@ -151,7 +151,8 @@ pub fn send_signal(
 pub type StartFn = fn(&std::path::Path, u32) -> Option<u64>;
 
 pub fn live_start(proc_root: &std::path::Path, pid: u32) -> Option<u64> {
-    crate::collect::read_text(&proc_root.join(pid.to_string()).join("stat"))
+    std::fs::read_to_string(proc_root.join(pid.to_string()).join("stat"))
+        .ok()
         .and_then(|t| crate::collect::process::parse_stat(&t))
         .map(|st| st.starttime)
 }
@@ -463,6 +464,11 @@ fn name_of(rows: &[Process], pid: u32) -> String {
 /// Invia il segnale scelto ai bersagli, dopo aver riverificato che siano ancora gli stessi
 /// processi (pid + avvio); riassume l'esito nella riga di stato.
 fn send_dialog(app: &mut App, d: &SignalDialog) {
+    // Difesa in profondità: in remoto un pid è di un'altra macchina, mai agire su quello locale.
+    if app.remote {
+        app.proc.set_status(crate::ui::app::REMOTE_NA.into(), false);
+        return;
+    }
     let sig = d.signal();
     let opened = d.targets();
     if opened.is_empty() {
@@ -549,6 +555,10 @@ fn send_dialog(app: &mut App, d: &SignalDialog) {
 /// F7/F8: nice -1 / +1 sul processo selezionato. Come htop, cambia solo il thread principale
 /// (setpriority su un pid agisce sul thread con tid = pid).
 pub fn change_nice(app: &mut App, delta: i32) {
+    if app.remote {
+        app.proc.set_status(crate::ui::app::REMOTE_NA.into(), false);
+        return;
+    }
     let Some((pid, name, cur)) = app
         .selected_process()
         .map(|p| (p.pid, p.name.clone(), p.nice as i32))
@@ -1938,11 +1948,11 @@ mod tests {
     #[test]
     fn disegno_senza_panic_alle_misure_previste() {
         let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/snap_a");
-        let mut sys = System::new(Roots {
-            proc: d.join("proc"),
-            sys: d.join("sys"),
-            etc: d.join("etc"),
-        });
+        let mut sys = System::new(Roots::with_dirs(
+            d.join("proc"),
+            d.join("sys"),
+            d.join("etc"),
+        ));
         sys.refresh_with_dt(1.0);
         sys.refresh_with_dt(1.0);
         for (w, h) in [(182, 52), (120, 40), (100, 30), (80, 24), (30, 8), (10, 4)] {

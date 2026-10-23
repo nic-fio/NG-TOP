@@ -4,10 +4,10 @@
 //! Memoria e CPU% di un'unità, letti direttamente dal suo cgroup (niente D-Bus per riga).
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use crate::collect::read_text;
+use crate::source::{LocalSource, Source};
 
 /// Valore `usage_usec` di un `cpu.stat`.
 pub fn parse_usage_usec(text: &str) -> Option<u64> {
@@ -28,7 +28,9 @@ pub fn cpu_percent(prev_usec: u64, cur_usec: u64, dt_secs: f64, ncores: f64) -> 
 }
 
 /// Legge i cgroup sotto `root` (di norma /sys/fs/cgroup) tenendo l'ultima lettura della CPU.
+/// Le letture passano da una [`Source`]: la macchina locale oppure una remota.
 pub struct CgroupSampler {
+    src: Arc<dyn Source>,
     root: PathBuf,
     ncores: f64,
     prev: HashMap<String, (u64, f64)>,
@@ -36,7 +38,13 @@ pub struct CgroupSampler {
 
 impl CgroupSampler {
     pub fn new(root: PathBuf, ncores: usize) -> Self {
+        Self::with_source(Arc::new(LocalSource), root, ncores)
+    }
+
+    /// Come `new`, ma legge da `src` (es. la macchina remota).
+    pub fn with_source(src: Arc<dyn Source>, root: PathBuf, ncores: usize) -> Self {
         CgroupSampler {
+            src,
             root,
             ncores: ncores.max(1) as f64,
             prev: HashMap::new(),
@@ -48,7 +56,11 @@ impl CgroupSampler {
     }
 
     fn read_u64(&self, cgroup: &str, file: &str) -> Option<u64> {
-        read_text(&self.dir(cgroup).join(file))?.trim().parse().ok()
+        self.src
+            .read_text(&self.dir(cgroup).join(file))?
+            .trim()
+            .parse()
+            .ok()
     }
 
     /// Memoria corrente (byte).
@@ -65,8 +77,9 @@ impl CgroupSampler {
     /// lettura precedente dello stesso cgroup, altrimenti è `None`.
     pub fn sample(&mut self, cgroup: &str, now: f64) -> (Option<u64>, Option<f64>) {
         let mem = self.mem_current(cgroup);
-        let usage = fs::read_to_string(self.dir(cgroup).join("cpu.stat"))
-            .ok()
+        let usage = self
+            .src
+            .read_text(&self.dir(cgroup).join("cpu.stat"))
             .and_then(|t| parse_usage_usec(&t));
         let cpu = usage.and_then(|u| {
             let old = self.prev.insert(cgroup.to_string(), (u, now));

@@ -5,7 +5,6 @@
 //! sottoprocessi per `journalctl` e `systemd-analyze blame`.
 
 use std::collections::HashMap;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -14,9 +13,11 @@ use zbus::blocking::{Connection, Proxy};
 use zbus::proxy::{CacheProperties, MethodFlags};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
+use crate::source::{CommandRunner, LocalRunner};
+
 use super::{
     Action, ActionError, Backend, BootTimestamps, JournalLine, Scope, SessionInfo, UnitDetail,
-    UnitInfo, classify_error, parse_blame, parse_journal_json,
+    UnitInfo, classify_error, journal_error, parse_blame, parse_journal_json,
 };
 
 const SYSTEMD: &str = "org.freedesktop.systemd1";
@@ -67,56 +68,14 @@ pub struct DbusBackend {
     unit_files_busy: Arc<AtomicBool>,
     /// Cgroup e PID principale dei servizi già visti.
     svc_cache: Mutex<HashMap<String, SvcEntry>>,
+    /// Esecuzione di journalctl e systemd-analyze (in locale `LocalRunner`).
+    run: Arc<dyn CommandRunner>,
 }
 
 impl Default for DbusBackend {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Come `Command::output` ma con tempo massimo: scaduto, kill + wait e errore `TimedOut`.
-fn run_with_timeout(cmd: &mut Command, limit: Duration) -> std::io::Result<std::process::Output> {
-    use std::io::Read;
-    use std::process::Stdio;
-    let mut child = cmd
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let mut so = child.stdout.take();
-    let mut se = child.stderr.take();
-    let t_out = std::thread::spawn(move || {
-        let mut v = Vec::new();
-        if let Some(s) = so.as_mut() {
-            let _ = s.read_to_end(&mut v);
-        }
-        v
-    });
-    let t_err = std::thread::spawn(move || {
-        let mut v = Vec::new();
-        if let Some(s) = se.as_mut() {
-            let _ = s.read_to_end(&mut v);
-        }
-        v
-    });
-    let start = Instant::now();
-    let status = loop {
-        if let Some(st) = child.try_wait()? {
-            break st;
-        }
-        if start.elapsed() >= limit {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(std::io::ErrorKind::TimedOut.into());
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    Ok(std::process::Output {
-        status,
-        stdout: t_out.join().unwrap_or_default(),
-        stderr: t_err.join().unwrap_or_default(),
-    })
 }
 
 fn es(e: impl std::fmt::Display) -> String {
@@ -177,7 +136,12 @@ fn non_empty(s: String) -> Option<String> {
 
 impl DbusBackend {
     pub fn new() -> Self {
+        Self::with_runner(Arc::new(LocalRunner))
+    }
+
+    pub fn with_runner(run: Arc<dyn CommandRunner>) -> Self {
         DbusBackend {
+            run,
             conns: Mutex::new(HashMap::new()),
             unit_files: Arc::new(Mutex::new(HashMap::new())),
             unit_files_busy: Arc::new(AtomicBool::new(false)),
@@ -516,41 +480,48 @@ impl Backend for DbusBackend {
     }
 
     fn journal(&self, scope: Scope, name: &str, n: usize) -> Result<Vec<JournalLine>, String> {
-        let mut cmd = Command::new("journalctl");
-        cmd.arg(match scope {
-            Scope::System => "-u",
+        let n = n.to_string();
+        let flag = match scope {
+            Scope::System => "--unit",
             Scope::User => "--user-unit",
-        })
-        .arg(name)
-        .arg("-n")
-        .arg(n.to_string())
-        .args(["-o", "json", "--no-pager", "-q"]);
-        let out = run_with_timeout(&mut cmd, JOURNAL_TIMEOUT).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                "journalctl not found".to_string()
-            } else if e.kind() == std::io::ErrorKind::TimedOut {
-                "journal too slow".to_string()
-            } else {
-                e.to_string()
-            }
-        })?;
-        if !out.status.success() {
-            let err = String::from_utf8_lossy(&out.stderr);
-            return Err(err
-                .lines()
-                .next()
-                .unwrap_or("journalctl failed")
-                .to_string());
+        };
+        let unit_arg = format!("{flag}={name}");
+        let out = self
+            .run
+            .run(
+                &[
+                    "journalctl",
+                    &unit_arg,
+                    "-n",
+                    &n,
+                    "-o",
+                    "json",
+                    "--no-pager",
+                    "-q",
+                ],
+                JOURNAL_TIMEOUT,
+            )
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    "journalctl not found".to_string()
+                } else if e.kind() == std::io::ErrorKind::TimedOut {
+                    "journal too slow".to_string()
+                } else {
+                    e.to_string()
+                }
+            })?;
+        if out.status != Some(0) {
+            return Err(journal_error(&out.stderr));
         }
         Ok(parse_journal_json(&String::from_utf8_lossy(&out.stdout)))
     }
 
     fn blame(&self) -> Result<Vec<(String, f64)>, String> {
-        let out = Command::new("systemd-analyze")
-            .args(["blame", "--no-pager"])
-            .output()
+        let out = self
+            .run
+            .run(&["systemd-analyze", "blame", "--no-pager"], JOURNAL_TIMEOUT)
             .map_err(es)?;
-        if !out.status.success() {
+        if out.status != Some(0) {
             return Err("systemd-analyze blame unavailable".to_string());
         }
         Ok(parse_blame(&String::from_utf8_lossy(&out.stdout)))
@@ -577,17 +548,6 @@ mod tests {
         let t = std::time::Instant::now();
         let n = b.list_units(Scope::System).map(|v| v.len());
         println!("list_units system: {n:?} in {:?}", t.elapsed());
-    }
-
-    #[test]
-    fn tempo_massimo_dei_sottoprocessi() {
-        let t = Instant::now();
-        let e = run_with_timeout(Command::new("sleep").arg("5"), Duration::from_millis(200))
-            .unwrap_err();
-        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut);
-        assert!(t.elapsed() < Duration::from_secs(2));
-        let o = run_with_timeout(Command::new("echo").arg("ciao"), Duration::from_secs(5)).unwrap();
-        assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "ciao");
     }
 
     #[test]

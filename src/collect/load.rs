@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use super::read_text;
+use crate::source::Source;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LoadAvg {
@@ -39,8 +39,8 @@ pub fn parse_loadavg(text: &str) -> LoadAvg {
     }
 }
 
-pub fn read_loadavg(path: &Path) -> LoadAvg {
-    read_text(path)
+pub fn read_loadavg(src: &dyn Source, path: &Path) -> LoadAvg {
+    src.read_text(path)
         .map(|t| parse_loadavg(&t))
         .unwrap_or_default()
 }
@@ -55,8 +55,8 @@ pub fn parse_uptime(text: &str) -> Uptime {
     }
 }
 
-pub fn read_uptime(path: &Path) -> Uptime {
-    read_text(path)
+pub fn read_uptime(src: &dyn Source, path: &Path) -> Uptime {
+    src.read_text(path)
         .map(|t| parse_uptime(&t))
         .unwrap_or_default()
 }

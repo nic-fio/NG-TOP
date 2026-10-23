@@ -1,0 +1,29 @@
+-.mount                                                                                                                                              loaded    active   mounted   Root Mount
+dev-hugepages.mount                                                                                                                                  loaded    active   mounted   Huge Pages File System
+dev-mqueue.mount                                                                                                                                     loaded    active   mounted   POSIX Message Queue File System
+home.mount                                                                                                                                           not-found inactive dead      home.mount
+mnt.mount                                                                                                                                            loaded    active   mounted   /mnt
+opt-expressvpn-etc-cgroup-net_cls.mount                                                                                                              loaded    active   mounted   /opt/expressvpn/etc/cgroup/net_cls
+accounts-daemon.service                                                                                                                              loaded    active   running   Accounts Service
+apparmor.service                                                                                                                                     not-found inactive dead      apparmor.service
+apt-daily-upgrade.service                                                                                                                            loaded    inactive dead      Daily apt upgrade and clean activities
+apt-daily.service                                                                                                                                    loaded    inactive dead      Daily apt download activities
+auditd.service                                                                                                                                       not-found inactive dead      auditd.service
+auto-cpufreq.service                                                                                                                                 not-found inactive dead      auto-cpufreq.service
+avahi-daemon.service                                                                                                                                 loaded    active   running   Avahi mDNS/DNS-SD Stack
+bluetooth.service                                                                                                                                    loaded    active   running   Bluetooth service
+chrony.service                                                                                                                                       loaded    active   running   chrony, an NTP client/server
+colord.service                                                                                                                                       loaded    active   running   Manage, Install and Generate Color Profiles
+connman.service                                                                                                                                      not-found inactive dead      connman.service
+cron.service                                                                                                                                         loaded    active   running   Regular background program processing daemon
+cups-browsed.service                                                                                                                                 loaded    active   running   Make remote CUPS printers available locally
+cups.service                                                                                                                                         loaded    active   running   CUPS Scheduler
+dbus.service                                                                                                                                         loaded    active   running   D-Bus System Message Bus
+dpkg-db-backup.service                                                                                                                               loaded    inactive dead      Daily dpkg database backup service
+e2scrub_all.service                                                                                                                                  loaded    inactive dead      Online ext4 Metadata Check for All Filesystems
+e2scrub_reap.service                                                                                                                                 loaded    inactive dead      Remove Stale Online ext4 Metadata Check Snapshots
+emergency.service                                                                                                                                    loaded    inactive dead      Emergency Shell
+expressvpn-service.service                                                                                                                           loaded    active   running   ExpressVPN daemon
+fstrim.service                                                                                                                                       loaded    inactive dead      Discard unused blocks on filesystems from /etc/fstab
+gdm.service                                                                                                                                          loaded    active   running   GNOME Display Manager
+foo@bar.service                      loaded    active   running   Template instance

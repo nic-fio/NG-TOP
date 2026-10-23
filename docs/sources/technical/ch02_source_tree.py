@@ -33,6 +33,15 @@ GROUPS = [
         ("src/config.rs", "Command line, the configuration file (a small TOML subset), merging of the two, atomic "
          "saving with " + c("W")),
     ]),
+    ("Reading sources and remote machines", [
+        ("src/source/mod.rs", "The " + c("Source") + " and " + c("CommandRunner") + " traits, their local implementations, " + c("RemoteStatus") + ": the single place through which the collectors read"),
+        ("src/remote/mod.rs", c("connect()") + ", " + c("ConnectOptions") + ", the ssh command (" + c("NGTOP_SSH") + ")"),
+        ("src/remote/agent.sh", "The POSIX shell script sent to the remote machine on stdin and run in memory: the reader that answers the requests"),
+        ("src/remote/session.rs", "The persistent ssh session, the nonce, the record protocol, " + c("sh_quote()")),
+        ("src/remote/source.rs", c("RemoteSource") + " and " + c("RemoteRunner") + ": manifest, caches, bulk reads, reconnection"),
+        ("src/remote/target.rs", "The " + c("TARGET") + " argument: parsing and validation"),
+        ("src/remote/tests.rs", "Unit tests of the protocol and of the remote source, with a local " + c("sh")),
+    ]),
     ("Collectors: src/collect/", [
         ("src/collect/mod.rs", c("System") + ", the state of the whole machine, and " + c("Roots") + "; "
          + c("refresh()") + " runs every collector in order"),
@@ -52,6 +61,7 @@ GROUPS = [
         ("src/collect/services/dbus.rs", "The real backend: D-Bus through " + c("zbus") + ", subprocesses with a time limit"),
         ("src/collect/services/worker.rs", "The services thread and its request / response channels"),
         ("src/collect/services/cgroup.rs", "Memory and CPU% of a unit, read straight from its cgroup"),
+        ("src/collect/services/remote.rs", "The remote backend: systemd through commands, no D-Bus, read-only"),
         ("src/collect/services/fake.rs", "A fake backend with demo data, for tests and screenshots"),
     ]),
     ("Interface: src/ui/", [
@@ -89,11 +99,15 @@ GROUPS = [
         ("tests/retedischi.rs", "Network, disks and connections: collectors, views, keys"),
         ("tests/servizi.rs", "The Services section with a fake backend"),
         ("tests/ui.rs", "Overview at many sizes, many-core machines"),
+        ("tests/remote.rs", "The remote protocol through a local " + c("sh") + ", compared with the local read, on the real machine and on a fixture"),
+        ("tests/source_only.rs", "The collectors read only through " + c("Source") + ": an in-memory source, and a scan of the sources"),
     ]),
     ("Build, tools and web site", [
         ("Cargo.toml", "Dependencies, release profile (LTO, one codegen unit, strip)"),
         ("build.sh", "Static build and the check that the result has no dynamic dependencies"),
         ("scripts/test-distro.sh", "Runs the static binary in containers of several distributions"),
+        ("scripts/test-remote.sh", "End-to-end tests of " + c("ngtop TARGET") + " against containers with sshd (Alpine, Debian, Debian with systemd); with " + c("--measure") + ", the measurements"),
+        ("scripts/measure-remote.sh", "Shortcut for " + c("test-remote.sh --measure")),
         ("scripts/third-party.py", "Writes the list of third-party licences of the crates compiled into the binary"),
         ("site/publish.sh", "Builds and publishes the web site"),
         ("site/licence-page.py", "Builds the licence page from " + c("LICENSE.md")),
@@ -128,6 +142,8 @@ S1 = p("Everything is in one Cargo package. The library holds the collectors and
     "│   ├── main.rs  # entry point, diagnostic modes",
     "│   ├── lib.rs  # library root",
     "│   ├── config.rs  # command line and configuration file",
+    "│   ├── source/  # Source, CommandRunner: how reads are made",
+    "│   ├── remote/  # ssh session, protocol, RemoteSource, agent.sh",
     "│   ├── collect/  # collectors: no interface code",
     "│   │   ├── mod.rs  # System, Roots",
     "│   │   ├── cpu.rs  mem.rs  load.rs  sensors.rs",
@@ -139,8 +155,8 @@ S1 = p("Everything is in one Cargo package. The library holds the collectors and
     "│       ├── widgets/  # Panel, BrailleGraph, Meter, Sparkline, ProcTable, TabBar, KeyBar, Dialog",
     "│       └── sections/  # one file per section; servizi/ is a folder",
     "├── tests/  # integration tests",
-    "│   └── fixtures/  # fake /proc, /sys, /etc trees",
-    "├── scripts/  # test-distro.sh, third-party.py",
+    "│   └── fixtures/  # fake /proc, /sys, /etc trees; remote/ has the Containerfiles",
+    "├── scripts/  # test-distro.sh, test-remote.sh, measure-remote.sh, third-party.py",
     "├── site/  # landing page, publishing, licence page",
     "├── mockup/  # HTML mock-ups of the interface (visual reference)",
     "├── docs/  # these manuals",
@@ -161,6 +177,7 @@ S2 = p("Four tools are enough to build and test ngtop. Rust is installed with " 
         [c("cargo fmt"), "Formatting"],
         [c("build.sh"), "Release build for " + c("x86_64-unknown-linux-musl") + ", copy to " + c("dist/ngtop") + ", check that it is static"],
         [c("scripts/test-distro.sh"), "Runs " + c("dist/ngtop") + " in containers of several distributions " + "(" + rif("Testing") + ")"],
+        [c("scripts/test-remote.sh"), "End-to-end tests of remote monitoring against containers with sshd; " + c("--measure") + " (or " + c("scripts/measure-remote.sh") + ") takes the measurements (" + rif("Remote measurements") + ")"],
         [c("scripts/third-party.py"), "Regenerates the list of third-party licences"],
         [c("python3 docs/sources/build.py"), "Regenerates these manuals (" + c("--check") + " verifies they match the code)"],
     ], "«TAB» — The commands of the project") + \
@@ -175,7 +192,7 @@ S2 = p("Four tools are enough to build and test ngtop. Rust is installed with " 
       "It is slower to compile and makes the file smaller and faster.") + \
     term("""$ bash build.sh
 ...
-OK: dist/ngtop is static (3.5M)""", "The last line of a successful build")
+OK: dist/ngtop is static (3.9M)""", "The last line of a successful build")
 
 S3 = p("Each folder outside " + c("src/") + " has one job.", lead=True) + \
     table(["Folder", "Job"], [

@@ -33,6 +33,8 @@ pub struct Config {
     pub temperature: TempUnit,
     /// Larghezza della colonna sinistra della Panoramica, in % (20–70).
     pub left_width: u16,
+    /// Macchina remota da monitorare via ssh (come TARGET); `None` = questa macchina.
+    pub host: Option<String>,
 }
 
 impl Default for Config {
@@ -44,8 +46,16 @@ impl Default for Config {
             colors: ColorSetting::Auto,
             temperature: TempUnit::Celsius,
             left_width: 40,
+            host: None,
         }
     }
+}
+
+/// Controlla un TARGET (host, user@host, ssh://user@host:porta) e ne restituisce il testo.
+pub fn check_target(s: &str) -> Result<String, String> {
+    crate::remote::Target::parse(s)
+        .map(|_| s.to_string())
+        .map_err(|e| format!("invalid TARGET '{s}': {e}"))
 }
 
 /// Arrotonda un intervallo al passo esistente più vicino.
@@ -191,6 +201,10 @@ pub fn parse_full(text: &str) -> Result<(Config, Vec<String>), String> {
                     return Err(at("'temperature' must be a quoted string".into()));
                 }
             },
+            "host" => match val {
+                Value::Str(s) => cfg.host = Some(check_target(&s).map_err(at)?),
+                _ => return Err(at("'host' must be a quoted string".into())),
+            },
             other => warnings.push(at(format!("unknown key '{other}', ignored"))),
         }
     }
@@ -212,7 +226,9 @@ pub fn to_toml(c: &Config) -> String {
          # temperature unit: \"C\" or \"F\"\n\
          temperature = \"{}\"\n\
          # width of the left column of the Overview, in % (20–70)\n\
-         left_width = {}\n",
+         left_width = {}\n\
+         # remote machine to monitor over ssh (like the TARGET argument)\n\
+         {}\n",
         c.interval_ms,
         c.section,
         c.mouse,
@@ -226,6 +242,10 @@ pub fn to_toml(c: &Config) -> String {
             TempUnit::Fahrenheit => "F",
         },
         c.left_width,
+        match &c.host {
+            Some(h) => format!("host = \"{h}\""),
+            None => "# host = \"user@server\"".to_string(),
+        },
     )
 }
 
@@ -359,12 +379,16 @@ pub struct Cli {
     pub no_mouse: bool,
     pub force_256: bool,
     pub config: Option<PathBuf>,
+    /// TARGET remoto (argomento posizionale oppure `--host`).
+    pub host: Option<String>,
+    /// `--local`: ignora la chiave `host` del file.
+    pub local: bool,
 }
 
 pub const USAGE: &str = "\
 ngtop — terminal system monitor (CPU, memory, GPU, network, disks, processes, services)
 
-Usage: ngtop [options]
+Usage: ngtop [options] [TARGET]
 
 Options:
   -h, --help             show this help
@@ -375,9 +399,20 @@ Options:
       --no-mouse         do not use the mouse
       --256              force 256 colors (for terminals without truecolor)
       --config FILE      use FILE instead of ~/.config/ngtop/config.toml
+      --host TARGET      monitor a remote machine (same as giving TARGET)
+      --local            monitor this machine even if the configuration has 'host'
+
+Remote machines:
+  TARGET is host, user@host or ssh://user@host:port.
+    ngtop alex@server            monitor server over ssh
+    ngtop --host ssh://alex@10.0.0.5:2222
+    ngtop --dump alex@server     text summary of server
+  ngtop uses your ssh command and configuration (keys, ~/.ssh/config, ProxyJump);
+  nothing is installed on the remote machine. Set NGTOP_SSH to use another ssh command.
+  In this version signals, nice and service actions are not available remotely.
 
 Diagnostics:
-  --dump                 print a text summary and exit (no interface)
+  --dump [TARGET]        print a text summary and exit (no interface)
 
 Keys: 1-5 sections, F1 help, W save the configuration, q quit.
 Command-line options override the configuration file.
@@ -399,7 +434,12 @@ pub fn parse_args(args: &[String]) -> Result<Cli, String> {
                 .or_else(|| it.next().cloned())
                 .ok_or_else(|| format!("option {name} requires a value ({label})"))
         };
-        if inline.is_some() && matches!(name, "--help" | "--version" | "--no-mouse" | "--256") {
+        if inline.is_some()
+            && matches!(
+                name,
+                "--help" | "--version" | "--no-mouse" | "--256" | "--local"
+            )
+        {
             return Err(format!("option {name} takes no value"));
         }
         match name {
@@ -428,10 +468,70 @@ pub fn parse_args(args: &[String]) -> Result<Cli, String> {
                 cli.section = Some(n);
             }
             "--config" => cli.config = Some(PathBuf::from(value("file")?)),
+            "--local" => cli.local = true,
+            "--host" => {
+                let v = value("TARGET")?;
+                if cli.host.is_some() {
+                    return Err("TARGET given twice".into());
+                }
+                cli.host = Some(check_target(&v)?);
+            }
+            t if !t.starts_with('-') && inline.is_none() => {
+                if cli.host.is_some() {
+                    return Err("TARGET given twice".into());
+                }
+                cli.host = Some(check_target(t)?);
+            }
             other => return Err(format!("unknown option '{other}'")),
         }
     }
+    if cli.local && cli.host.is_some() {
+        return Err("--local cannot be used together with a TARGET".into());
+    }
     Ok(cli)
+}
+
+/// TARGET indicato nella riga di comando di `--dump` / `--snapshot` (posizionale oppure `--host`),
+/// saltando i valori delle altre opzioni. Errore se non valido.
+pub fn find_target(args: &[String]) -> Result<Option<String>, String> {
+    const WITH_VALUE: [&str; 9] = [
+        "-s",
+        "--section",
+        "--roots",
+        "--select-pid",
+        "--overlay",
+        "--config",
+        "-d",
+        "--delay",
+        "--snapshot",
+    ];
+    let mut found: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let t = if a == "--host" {
+            Some(
+                it.next()
+                    .ok_or("option --host requires a value (TARGET)")?
+                    .as_str(),
+            )
+        } else if let Some(v) = a.strip_prefix("--host=") {
+            Some(v)
+        } else if WITH_VALUE.contains(&a.as_str()) {
+            it.next();
+            None
+        } else if !a.starts_with('-') {
+            Some(a.as_str())
+        } else {
+            None
+        };
+        if let Some(t) = t {
+            if found.is_some() {
+                return Err("TARGET given twice".into());
+            }
+            found = Some(check_target(t)?);
+        }
+    }
+    Ok(found)
 }
 
 /// Applica le opzioni da riga di comando sopra la configurazione (la riga di comando prevale).
@@ -447,6 +547,11 @@ pub fn merge(mut cfg: Config, cli: &Cli) -> Config {
     }
     if cli.force_256 {
         cfg.colors = ColorSetting::C256;
+    }
+    if cli.local {
+        cfg.host = None;
+    } else if let Some(h) = &cli.host {
+        cfg.host = Some(h.clone());
     }
     cfg
 }
@@ -663,5 +768,87 @@ mod tests {
         assert_eq!(merge(file.clone(), &Cli::default()), file);
         assert_eq!(section_from_number(3), Section::Processi);
         assert_eq!(section_from_number(99), Section::Servizi);
+    }
+
+    #[test]
+    fn target_nella_riga_di_comando() {
+        let c = parse_args(&args(&["alex@server"])).unwrap();
+        assert_eq!(c.host.as_deref(), Some("alex@server"));
+        let c = parse_args(&args(&["-d", "500", "ssh://alex@10.0.0.5:2222", "-s", "3"])).unwrap();
+        assert_eq!(c.host.as_deref(), Some("ssh://alex@10.0.0.5:2222"));
+        assert_eq!((c.delay, c.section), (Some(500), Some(3)));
+        let c = parse_args(&args(&["--host", "srv"])).unwrap();
+        assert_eq!(c.host.as_deref(), Some("srv"));
+        let c = parse_args(&args(&["--host=alex@srv"])).unwrap();
+        assert_eq!(c.host.as_deref(), Some("alex@srv"));
+        assert!(parse_args(&args(&["--local"])).unwrap().local);
+        // errori
+        for bad in [
+            &["a", "b"][..],
+            &["--host", "a", "b"],
+            &["--host"],
+            &["--local", "srv"],
+            &["--local", "--host", "srv"],
+            &["--local=1"],
+            &[""],
+            &["--host", ""],
+        ] {
+            assert!(parse_args(&args(bad)).is_err(), "{bad:?}");
+        }
+        let e = parse_args(&args(&["--host", ""])).unwrap_err();
+        assert!(e.contains("invalid TARGET"), "{e}");
+    }
+
+    #[test]
+    fn target_per_dump_e_snapshot() {
+        let t = |v: &[&str]| find_target(&args(v));
+        assert_eq!(t(&["--dump"]).unwrap(), None);
+        assert_eq!(
+            t(&["--dump", "alex@srv"]).unwrap().as_deref(),
+            Some("alex@srv")
+        );
+        assert_eq!(
+            t(&["--snapshot", "120x40", "--section", "3", "srv", "--ansi"])
+                .unwrap()
+                .as_deref(),
+            Some("srv")
+        );
+        assert_eq!(
+            t(&["--snapshot", "80x24", "--host", "srv"])
+                .unwrap()
+                .as_deref(),
+            Some("srv")
+        );
+        assert_eq!(t(&["--snapshot", "80x24", "--section", "3"]).unwrap(), None);
+        assert!(t(&["--dump", "a", "b"]).is_err());
+        assert!(t(&["--dump", ""]).is_err());
+    }
+
+    #[test]
+    fn host_nel_file_e_precedenze() {
+        let c = parse("host = \"alex@server\"\n").unwrap();
+        assert_eq!(c.host.as_deref(), Some("alex@server"));
+        assert_eq!(parse(&to_toml(&c)).unwrap(), c);
+        assert_eq!(parse(&to_toml(&Config::default())).unwrap().host, None);
+        assert!(parse("host = 5").unwrap_err().contains("'host'"));
+        let e = parse("\nhost = \"\"").unwrap_err();
+        assert!(e.contains("line 2") && e.contains("invalid TARGET"), "{e}");
+        // la riga di comando prevale sul file; --local lo annulla
+        let file = c;
+        let cli = parse_args(&args(&["other"])).unwrap();
+        assert_eq!(merge(file.clone(), &cli).host.as_deref(), Some("other"));
+        let cli = parse_args(&args(&["--local"])).unwrap();
+        assert_eq!(merge(file.clone(), &cli).host, None);
+        assert_eq!(merge(file.clone(), &Cli::default()), file);
+        // salvare con W non perde la riga host
+        let old = "host = \"alex@server\"\ninterval = 1000\n";
+        let t = update_text(
+            old,
+            &Config {
+                interval_ms: 500,
+                ..file
+            },
+        );
+        assert!(t.contains("host = \"alex@server\"") && t.contains("interval = 500"));
     }
 }

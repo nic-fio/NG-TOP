@@ -14,11 +14,7 @@ fn roots(snap: &str) -> Roots {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/rete_dischi")
         .join(snap);
-    Roots {
-        proc: base.join("proc"),
-        sys: base.join("sys"),
-        etc: base.join("etc"),
-    }
+    Roots::with_dirs(base.join("proc"), base.join("sys"), base.join("etc"))
 }
 
 /// Due campioni a 1 s di distanza, con la raccolta delle connessioni attiva.

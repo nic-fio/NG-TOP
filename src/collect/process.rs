@@ -6,12 +6,9 @@
 use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File};
-use std::io::Read;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use super::read_text;
+use crate::source::Source;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Process {
@@ -166,8 +163,8 @@ pub fn parse_passwd(text: &str) -> HashMap<u32, String> {
     m
 }
 
-pub fn load_users(path: &Path) -> HashMap<u32, String> {
-    read_text(path)
+pub fn load_users(src: &dyn Source, path: &Path) -> HashMap<u32, String> {
+    src.read_text(path)
         .map(|t| parse_passwd(&t))
         .unwrap_or_default()
 }
@@ -184,9 +181,8 @@ fn cmdline_text(raw: &[u8], name: &str) -> String {
 }
 
 /// Legge un file piccolo in un buffer riusato (niente allocazioni per file).
-fn read_into<'a>(path: &Path, buf: &'a mut Vec<u8>) -> Option<Cow<'a, str>> {
-    buf.clear();
-    File::open(path).ok()?.read_to_end(buf).ok()?;
+fn read_into<'a>(src: &dyn Source, path: &Path, buf: &'a mut Vec<u8>) -> Option<Cow<'a, str>> {
+    src.read_into(path, buf).ok()?;
     Some(String::from_utf8_lossy(buf))
 }
 
@@ -194,6 +190,7 @@ fn read_into<'a>(path: &Path, buf: &'a mut Vec<u8>) -> Option<Cow<'a, str>> {
 /// `None` se è sparito o illeggibile.
 #[allow(clippy::too_many_arguments)]
 fn read_one(
+    src: &dyn Source,
     dir: &mut PathBuf,
     pid: u32,
     hz: u64,
@@ -205,7 +202,7 @@ fn read_one(
     buf: &mut Vec<u8>,
 ) -> Option<Process> {
     dir.push("stat");
-    let text = read_into(dir, buf);
+    let text = read_into(src, dir, buf);
     dir.pop();
     let st = parse_stat(&text?)?;
     // Dopo un exec cambia il comm: la cache vale solo se avvio e nome coincidono.
@@ -219,9 +216,9 @@ fn read_one(
         Some(o) if !recheck => o.uid,
         _ => {
             dir.push("status");
-            let t = read_into(dir, buf).and_then(|t| parse_status_uid(&t));
+            let t = read_into(src, dir, buf).and_then(|t| parse_status_uid(&t));
             dir.pop();
-            t.or_else(|| fs::metadata(&*dir).ok().map(|m| m.uid()))?
+            t.or_else(|| src.owner_uid(dir).ok())?
         }
     };
     let user = users.get(&uid).cloned().unwrap_or_else(|| uid.to_string());
@@ -230,7 +227,7 @@ fn read_one(
         Some(c) => c,
         None => {
             dir.push("cmdline");
-            let raw = fs::read(&*dir).unwrap_or_default();
+            let raw = src.read(dir).unwrap_or_default();
             dir.pop();
             cmdline_text(&raw, &st.name)
         }
@@ -238,7 +235,7 @@ fn read_one(
     // I/O solo se richiesto, e senza riprovare dopo un permesso negato.
     let io = if want_io && !same.is_some_and(|o| o.io_denied) {
         dir.push("io");
-        let r = read_into(dir, buf).and_then(|t| parse_io(&t));
+        let r = read_into(src, dir, buf).and_then(|t| parse_io(&t));
         dir.pop();
         r
     } else {
@@ -271,6 +268,7 @@ fn read_one(
 /// Legge tutti i processi e calcola CPU% e velocità I/O rispetto al campione precedente.
 #[allow(clippy::too_many_arguments)]
 pub fn read_all(
+    src: &dyn Source,
     proc_root: &Path,
     hz: u64,
     page_size: u64,
@@ -282,20 +280,19 @@ pub fn read_all(
     round: u64,
 ) -> Vec<Process> {
     let mut out = Vec::new();
-    let Ok(rd) = fs::read_dir(proc_root) else {
+    let Ok(rd) = src.read_dir(proc_root) else {
         return out;
     };
     let mut buf = Vec::with_capacity(4096);
     let mut path = proc_root.to_path_buf();
-    for e in rd.flatten() {
-        let name = e.file_name();
+    for name in rd {
         let Some(pid) = name.to_str().and_then(|n| n.parse::<u32>().ok()) else {
             continue;
         };
         let old = prev.get(&pid);
         path.push(&name);
         let p = read_one(
-            &mut path, pid, hz, page_size, users, old, want_io, round, &mut buf,
+            src, &mut path, pid, hz, page_size, users, old, want_io, round, &mut buf,
         );
         path.pop();
         let Some(mut p) = p else {
@@ -418,6 +415,7 @@ pub fn sort_processes(procs: &mut [Process], key: SortKey, descending: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     fn p(pid: u32, ppid: u32) -> Process {
         Process {
@@ -462,7 +460,19 @@ mod tests {
 
     fn r1(dir: &std::path::Path, users: &HashMap<u32, String>, prev: Option<&ProcPrev>) -> Process {
         let mut d = dir.to_path_buf();
-        read_one(&mut d, 5, 100, 4096, users, prev, true, 1, &mut Vec::new()).unwrap()
+        read_one(
+            &crate::source::LocalSource,
+            &mut d,
+            5,
+            100,
+            4096,
+            users,
+            prev,
+            true,
+            1,
+            &mut Vec::new(),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -524,6 +534,7 @@ mod tests {
         // senza il flag non si legge io
         let mut d = dir.clone();
         let p4 = read_one(
+            &crate::source::LocalSource,
             &mut d,
             5,
             100,
@@ -539,6 +550,7 @@ mod tests {
         fs::write(dir.join("status"), "Uid:\t11\t11\t11\t11\n").unwrap_or(());
         let mut d = dir.clone();
         let p5 = read_one(
+            &crate::source::LocalSource,
             &mut d,
             5,
             100,

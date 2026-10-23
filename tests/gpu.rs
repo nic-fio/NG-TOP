@@ -14,11 +14,7 @@ fn roots(name: &str) -> Roots {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/gpu")
         .join(name);
-    Roots {
-        proc: base.join("proc"),
-        sys: base.join("sys"),
-        etc: base.join("etc"),
-    }
+    Roots::with_dirs(base.join("proc"), base.join("sys"), base.join("etc"))
 }
 
 fn new_system(name: &str) -> System {

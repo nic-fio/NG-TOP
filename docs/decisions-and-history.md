@@ -167,6 +167,48 @@ network, disks and services, in one program. Working rules:
   page is live, with sample data.
 - **Consequences.** The site is published by `site/publish.sh`.
 
+### D15. Remote machines over ssh, without agents
+
+- **Context.** The owner wanted to monitor servers without installing anything
+  on them.
+- **Decision.** `ngtop [user@]host` reads the remote `/proc` and `/sys` through
+  one persistent ssh session. Nothing is installed or written on the server;
+  it needs only an ssh server and a POSIX shell (busybox included).
+
+### D16. The system ssh command, not an ssh library
+
+- **Decision.** ngtop runs the `ssh` command of the system. The user keeps their
+  keys, agent, `~/.ssh/config`, `ProxyJump` and `known_hosts`.
+- **Reason.** The ssh libraries for Rust need cryptography written in C, which
+  would break the static binary (D1, D2).
+
+### D17. One request per refresh, with a learned manifest
+
+- **Context.** Opening a new ssh connection costs about 0.6 s.
+- **Decision.** The session stays open and each refresh asks for all the files
+  at once. Reads are bulk, one process per group (`grep -H`, `wc` + `cat`,
+  `ls -lq`), to keep the load on the server under about 1 % CPU.
+
+### D18. Read-only first
+
+- **Decision.** In 1.5 signals, nice and service actions are disabled on remote
+  machines; they are planned for a later phase.
+- **Reason.** The `pidfd` protection of D7 does not exist across ssh.
+
+### D19. Defensive protocol
+
+- **Decision.** The end of each reply is marked by a random 128-bit nonce chosen
+  by the client for each session and never put on a command line, so it cannot
+  appear in the data. Every argument is quoted, memory is limited (the reply
+  size has a cap), every block is validated, and hostile data never causes a
+  panic.
+- **Reason.** A hostile process on the server must not be able to forge the
+  data of others.
+
+### D20. Version 1.5
+
+- **Decision.** The owner chose 1.5 for the release that adds remote machines.
+
 ---
 
 ## 3. History
@@ -183,6 +225,7 @@ an independent review before the next began.
 | **5. Distributions** | Tests on eight distributions with `scripts/test-distro.sh` (D1). |
 | **6. Website** | Ten proposals, direction "Daylight" chosen; site published (D14). |
 | **7. English and manuals** | Interface moved to English, licence set (D12), user and technical manuals written, with this document. |
+| **8. Remote machines (1.5.0)** | Evening of 2026-10-23. A plan for remote monitoring; the `Source` interface written by the coordinator; five programmers in parallel on collectors, ssh transport, remote services, command line and interface; end-to-end tests on containers (Alpine, Debian, Debian with systemd) and on two real hosts. An independent review found four security issues (forged fd links through file names with newlines, shifted command lines, panics and unbounded memory with a hostile server); all were fixed and verified again (D15–D20). |
 
 ---
 
@@ -192,4 +235,5 @@ an independent review before the next began.
 |---|---|
 | NVIDIA | Detected only (D5). Full support planned. |
 | Architectures | x86_64 only. |
+| Remote machines | Read-only (D18); signals, nice and service actions on remote hosts are a later phase. |
 | Real hardware | Measured on an Intel N100 machine and tested in containers on eight distributions; other hardware, especially other GPUs, is unverified. |

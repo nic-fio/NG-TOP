@@ -11,13 +11,16 @@ use ratatui::style::{Modifier, Style};
 use crate::ui::theme;
 
 const BRAND: &str = "ngtop";
-const VERSION: &str = " 1.0 │ ";
+const VERSION: &str = " 1.5 │ ";
 
 pub struct TabBar<'a> {
     pub tabs: &'a [&'a str],
     pub active: usize,
     /// Testo a destra (mostrato solo se c'è spazio).
     pub right: &'a str,
+    /// In remoto: macchina e latenza, scritte subito prima di `right` (la latenza ha un colore).
+    pub lead: &'a str,
+    pub accent: Option<(&'a str, ratatui::style::Color)>,
 }
 
 fn tab_text(i: usize, name: &str) -> String {
@@ -38,6 +41,18 @@ impl TabBar<'_> {
                 r
             })
             .collect()
+    }
+
+    /// Ultima colonna (esclusa) usabile dalle schede: in remoto lascia posto a macchina e latenza.
+    pub fn tabs_end(&self, area: Rect) -> u16 {
+        let end = area.x + area.width;
+        let lead =
+            (super::width(self.lead) + self.accent.map_or(0, |(t, _)| super::width(t))) as u16;
+        if lead == 0 {
+            end
+        } else {
+            end.saturating_sub(lead + 2)
+        }
     }
 
     pub fn render(&self, area: Rect, buf: &mut Buffer) {
@@ -63,7 +78,7 @@ impl TabBar<'_> {
             .zip(self.tabs)
             .enumerate()
         {
-            if x + w > end {
+            if x + w > self.tabs_end(area) {
                 break;
             }
             let style = if i == self.active {
@@ -77,15 +92,26 @@ impl TabBar<'_> {
             put(buf, x, area.y, tab_text(i, name), style);
             last = x + w;
         }
+        let fg = Style::default().fg(theme::FG);
+        let lw = super::width(self.lead) as u16;
+        let aw = self.accent.map_or(0, |(t, _)| super::width(t) as u16);
         let rw = super::width(self.right) as u16;
-        if rw > 0 && last + 2 + rw <= end {
-            put(
-                buf,
-                end - rw,
-                area.y,
-                self.right,
-                Style::default().fg(theme::FG),
-            );
+        // Se non c'è posto per tutto, in remoto restano almeno macchina e latenza.
+        let rw = if lw + aw > 0 && last + 2 + lw + aw + rw > end {
+            0
+        } else {
+            rw
+        };
+        let total = lw + aw + rw;
+        if total > 0 && last + 2 + total <= end {
+            let mut x = end - total;
+            put(buf, x, area.y, self.lead, fg);
+            x += lw;
+            if let Some((t, c)) = self.accent {
+                put(buf, x, area.y, t, Style::default().fg(c));
+                x += aw;
+            }
+            put(buf, x, area.y, self.right, fg);
         }
     }
 }
@@ -100,6 +126,8 @@ mod tests {
             tabs: &["Uno", "Due"],
             active: 1,
             right: "host",
+            lead: "",
+            accent: None,
         };
         let r = bar.tab_ranges(0);
         assert_eq!(r, [(12, 7), (19, 7)]);
@@ -119,6 +147,8 @@ mod tests {
             tabs: &["Uno", "Due"],
             active: 0,
             right: "una scritta molto lunga",
+            lead: "",
+            accent: None,
         };
         let area = Rect::new(0, 0, 30, 1);
         let mut buf = Buffer::empty(area);

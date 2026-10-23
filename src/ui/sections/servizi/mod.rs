@@ -16,11 +16,13 @@ use ratatui::style::Color;
 
 use crate::collect::process::Process;
 use crate::collect::services::dbus::DbusBackend;
+use crate::collect::services::remote::{REMOTE_ACTION_MSG, REMOTE_USER_MSG};
 use crate::collect::services::worker::{Client, Request, Response};
 use crate::collect::services::{
     Action, ActionError, Backend, BootTimestamps, DENIED_TEXT, JournalLine, Scope, SessionInfo,
     UnitDetail, UnitInfo, UnitRow, systemd_present,
 };
+use crate::source::{CommandRunner, Source};
 use crate::ui::theme;
 use crate::ui::tz::Tz;
 use crate::ui::widgets::proctable::follow;
@@ -152,6 +154,9 @@ pub struct Status {
     pub at: Instant,
 }
 
+/// Sorgente, esecutore di comandi e core logici della macchina remota.
+type RemoteCtx = (Arc<dyn Source>, Arc<dyn CommandRunner>, usize);
+
 pub struct Servizi {
     run_dir: PathBuf,
     cgroup_root: PathBuf,
@@ -194,6 +199,8 @@ pub struct Servizi {
     last_sessions: Option<Instant>,
     boot_asked: bool,
     blame_asked: bool,
+    /// Macchina remota: azioni disattivate e niente controllo di systemd sul disco locale.
+    remote: Option<RemoteCtx>,
 }
 
 impl Default for Servizi {
@@ -211,6 +218,13 @@ impl Servizi {
     /// Con un backend dato (test) e radici configurabili.
     pub fn with_backend(backend: Arc<dyn Backend>, run_dir: PathBuf, cgroup_root: PathBuf) -> Self {
         Self::build(Some(backend), run_dir, cgroup_root)
+    }
+
+    /// Servizi di una macchina remota: backend a comandi (via `Roots.run`), letture via `Roots.src`.
+    pub fn remote(src: Arc<dyn Source>, run: Arc<dyn CommandRunner>, ncores: usize) -> Self {
+        let mut s = Self::build(None, PathBuf::from("/run"), PathBuf::from("/sys/fs/cgroup"));
+        s.remote = Some((src, run, ncores));
+        s
     }
 
     fn build(backend: Option<Arc<dyn Backend>>, run_dir: PathBuf, cgroup_root: PathBuf) -> Self {
@@ -250,6 +264,7 @@ impl Servizi {
             last_sessions: None,
             boot_asked: false,
             blame_asked: false,
+            remote: None,
         }
     }
 
@@ -281,6 +296,24 @@ impl Servizi {
     }
 
     fn start(&mut self) {
+        if let Some((src, run, ncores)) = self.remote.clone() {
+            if !crate::collect::services::systemd_present_in(&*src, &self.run_dir) {
+                self.avail = Availability::NoSystemd;
+                return;
+            }
+            let backend = self
+                .backend
+                .clone()
+                .unwrap_or_else(|| crate::collect::services::backend_for(&src, &run));
+            self.client = Some(Client::spawn_with(
+                backend,
+                self.cgroup_root.clone(),
+                src,
+                ncores,
+            ));
+            self.avail = Availability::Available;
+            return;
+        }
         if !systemd_present(&self.run_dir) {
             self.avail = Availability::NoSystemd;
             return;
@@ -460,7 +493,13 @@ impl Servizi {
                 self.chip = self.chip.next();
                 self.relocate();
             }
+            KeyCode::Char('u') if self.remote.is_some() => {
+                self.set_status(REMOTE_USER_MSG.into(), false);
+            }
             KeyCode::Char('u') => self.switch_scope(),
+            KeyCode::Char('s' | 't' | 'r' | 'e') if self.remote.is_some() => {
+                self.set_status(REMOTE_ACTION_MSG.into(), false);
+            }
             KeyCode::Char('s') => self.ask_confirm(Action::Start),
             KeyCode::Char('t') => self.ask_confirm(Action::Stop),
             KeyCode::Char('r') => self.ask_confirm(Action::Restart),

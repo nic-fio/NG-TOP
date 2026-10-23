@@ -30,12 +30,13 @@ S1 = p("<b>ngtop</b> is a system monitor for the terminal. It joins the processo
        "distribution and it runs, with nothing to install. This manual explains how it works, for whoever wants "
        "to understand it, maintain it or extend it.", lead=True) + OVERVIEW + \
     table(["Item", "Value"], [
-        ["Version", c("1.0.0") + " (" + c("Cargo.toml") + ")"],
+        ["Version", c("1.5.0") + " (" + c("Cargo.toml") + ")"],
         ["Language", "Rust, edition 2024; interface drawn with " + c("ratatui") + " 0.30 on " + c("crossterm") + " 0.29"],
         ["Target", c("x86_64-unknown-linux-musl") + ", fully static (" + rif("The static build") + ")"],
         ["Sections", "Overview, GPU, Processes, Network &amp; Disks, Services (keys " + c("1") + " to " + c("5") + ")"],
         ["Data", "Only the kernel's text files, a few system calls through " + c("rustix") + ", and D-Bus for systemd "
          "(" + rif("Data sources") + ")"],
+        ["Remote machines", c("ngtop user@host") + " shows another Linux machine through one persistent " + c("ssh") + " session, with nothing installed on it, read-only (" + rif("Remote monitoring") + ")"],
         ["Privileges", "None required. Whatever needs more (other users' file descriptors, power, GPU clients of "
          "other users) is shown as “—” when it cannot be read"],
         ["GPUs", "AMD (amdgpu) and Intel (i915, xe) are read; NVIDIA is only detected"],

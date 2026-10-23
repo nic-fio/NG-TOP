@@ -16,7 +16,8 @@ fn main() {
     if args.iter().any(|a| a == "--doc-json") {
         write_stdout(&ngtop::ui::doc::doc_json());
     } else if args.iter().any(|a| a == "--dump") {
-        dump(args.iter().any(|a| a == "--tree"));
+        let roots = roots_for(&args);
+        dump(args.iter().any(|a| a == "--tree"), roots);
     } else if args.iter().any(|a| a == "--bench-start") {
         bench_start(start);
     } else if args.iter().any(|a| a == "--bench") {
@@ -25,6 +26,43 @@ fn main() {
         snapshot(&args, i);
     } else {
         interactive(&args);
+    }
+}
+
+/// Radici di lettura per `--dump` / `--snapshot`: la macchina remota se c'è un TARGET
+/// (posizionale o `--host`), altrimenti questa.
+fn roots_for(args: &[String]) -> Roots {
+    match ngtop::config::find_target(args) {
+        Ok(Some(t)) => connect_remote(&t),
+        Ok(None) => Roots::local(),
+        Err(e) => {
+            eprintln!("ngtop: {e}\nTry 'ngtop --help'.");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// Apre la connessione ssh PRIMA di toccare il terminale (ssh può chiedere password o host key).
+/// Errore: messaggio chiaro su stderr ed exit 2.
+fn connect_remote(target: &str) -> Roots {
+    use ngtop::remote::{ConnectOptions, Target};
+    let t = Target::parse(target).unwrap_or_else(|e| {
+        eprintln!("ngtop: invalid TARGET '{target}': {e}");
+        std::process::exit(2);
+    });
+    eprintln!("Connecting to {}…", t.display());
+    match ngtop::remote::connect(&t, &ConnectOptions::default()) {
+        Ok((src, run)) => Roots::remote(src, run),
+        Err(e) => {
+            // l'errore contiene l'ultima riga di stderr di ssh, che può venire dal server
+            let e: String = e
+                .to_string()
+                .chars()
+                .map(|c| if c.is_control() { '?' } else { c })
+                .collect();
+            eprintln!("ngtop: cannot connect to {}: {e}", t.display());
+            std::process::exit(2);
+        }
     }
 }
 
@@ -76,6 +114,11 @@ fn interactive(args: &[String]) {
         None => config::Config::default(),
     };
     let effective = config::merge(file.clone(), &cli);
+    // Con un TARGET (riga di comando o file) ci si collega ora, prima della modalità raw.
+    let roots = match &effective.host {
+        Some(h) => connect_remote(h),
+        None => Roots::local(),
+    };
     let colors = ngtop::ui::theme::ColorMode::detect(
         effective.colors,
         std::env::var("COLORTERM").ok().as_deref(),
@@ -86,6 +129,7 @@ fn interactive(args: &[String]) {
         file,
         config_path: path,
         colors,
+        roots,
     };
     if let Err(e) = ngtop::ui::run(opts) {
         eprintln!("ngtop: terminal error: {e}");
@@ -101,9 +145,15 @@ fn write_stdout(s: &str) {
     let _ = o.flush();
 }
 
+// I testi del riepilogo vengono anche da una macchina remota (nomi di processo, righe di comando):
+// i caratteri di controllo diventano '?', così nessuna sequenza di escape arriva al terminale.
 macro_rules! outln {
     ($o:expr, $($a:tt)*) => {{
-        let _ = writeln!($o, $($a)*);
+        let line: String = format!($($a)*)
+            .chars()
+            .map(|c| if c.is_control() { '?' } else { c })
+            .collect();
+        let _ = writeln!($o, "{line}");
     }};
 }
 
@@ -125,22 +175,25 @@ fn snapshot(args: &[String], i: usize) {
         .and_then(|n| Section::ALL.get(n).copied())
         .unwrap_or(Section::Panoramica);
     // `--roots DIR` (nascosto): legge DIR/proc, DIR/sys e DIR/etc invece del sistema vero.
-    let roots = args
+    let roots = match args
         .iter()
         .position(|a| a == "--roots")
         .and_then(|j| args.get(j + 1))
-        .map_or_else(Roots::default, |d| {
+    {
+        Some(d) => {
             let d = std::path::PathBuf::from(d);
-            Roots {
-                proc: d.join("proc"),
-                sys: d.join("sys"),
-                etc: d.join("etc"),
-            }
-        });
+            Roots::with_dirs(d.join("proc"), d.join("sys"), d.join("etc"))
+        }
+        None => roots_for(args),
+    };
     let use_roots = args.iter().any(|a| a == "--roots");
     let mut sys = System::new(roots);
     let mut app = ngtop::ui::app::App::new((w, h), ngtop::ui::hostname(&sys));
+    app.remote = sys.remote_status().is_some();
     app.section = section;
+    if app.remote {
+        app.servizi = ngtop::ui::services_for(&sys);
+    }
     // Con `--roots` la sezione Services usa il backend finto (dati dimostrativi, niente D-Bus).
     if use_roots && section == Section::Servizi {
         app.servizi = ngtop::ui::sections::servizi::Servizi::with_backend(
@@ -150,7 +203,7 @@ fn snapshot(args: &[String], i: usize) {
         );
         let _ = std::fs::create_dir_all(std::env::temp_dir().join("systemd/system"));
     }
-    app.tz = ngtop::ui::tz::Tz::load(&sys.roots.etc);
+    app.tz = ngtop::ui::tz::Tz::load(&sys.roots);
     // Circa 20 campioni ravvicinati, così gli storici dei grafici non sono vuoti.
     sys.collect_conns = section == Section::ReteDischi;
     for _ in 0..20 {
@@ -214,10 +267,10 @@ fn snapshot(args: &[String], i: usize) {
 /// prova 182x52 (stessa sequenza dell'avvio vero, senza terminale). Il primo valore è "a freddo".
 fn bench_start(main_start: std::time::Instant) {
     let first_frame = || {
-        let mut sys = System::new(Roots::default());
+        let mut sys = System::new(Roots::local());
         sys.refresh();
         let mut app = ngtop::ui::app::App::new((182, 52), ngtop::ui::hostname(&sys));
-        app.tz = ngtop::ui::tz::Tz::load(&sys.roots.etc);
+        app.tz = ngtop::ui::tz::Tz::load(&sys.roots);
         app.update(&sys);
         let _ = ngtop::ui::snapshot::render_app(&sys, &mut app);
     };
@@ -243,7 +296,7 @@ fn bench_start(main_start: std::time::Instant) {
 /// con ciascuna sezione visibile.
 fn bench() {
     use std::time::Instant;
-    let mut sys = System::new(Roots::default());
+    let mut sys = System::new(Roots::local());
     let mut app = ngtop::ui::app::App::new((182, 52), ngtop::ui::hostname(&sys));
     sys.refresh();
     app.update(&sys);
@@ -301,13 +354,21 @@ fn gib(b: u64) -> String {
     format!("{:.2} GiB", b as f64 / 1_073_741_824.0)
 }
 
-fn dump(tree: bool) {
+fn dump(tree: bool, roots: Roots) {
     let mut out = String::new();
-    let mut sys = System::new(Roots::default());
+    let mut sys = System::new(roots);
     sys.refresh();
     sleep(Duration::from_millis(500));
     sys.refresh();
 
+    if let Some(st) = sys.remote_status() {
+        outln!(
+            out,
+            "Host: {} (via ssh, {})",
+            ngtop::ui::hostname(&sys),
+            st.target
+        );
+    }
     let c = &sys.cpu;
     outln!(
         out,

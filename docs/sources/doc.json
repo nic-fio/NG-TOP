@@ -87,7 +87,15 @@
    "help": "use FILE instead of ~/.config/ngtop/config.toml"
   },
   {
-   "flag": "--dump",
+   "flag": "--host TARGET",
+   "help": "monitor a remote machine (same as giving TARGET)"
+  },
+  {
+   "flag": "--local",
+   "help": "monitor this machine even if the configuration has 'host'"
+  },
+  {
+   "flag": "--dump [TARGET]",
    "help": "print a text summary and exit (no interface)"
   }
  ],
@@ -420,5 +428,5 @@
    "name": "Services"
   }
  ],
- "version": "1.0.0"
+ "version": "1.5.0"
 }

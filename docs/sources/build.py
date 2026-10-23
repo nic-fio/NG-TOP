@@ -402,7 +402,7 @@ def seq(actors, events, cap, title="", width=900):
 # tiny files: the manual describes them by folder), not the generated copies (site/public), not
 # the build products (target/, dist/), not the images and the cached screenshots.
 SOURCE_PATTERNS = [
-    ("src", (".rs",)),
+    ("src", (".rs", ".sh")),
     ("tests", (".rs",)),
     ("scripts", None),
     ("site/landing", (".html", ".css", ".js")),

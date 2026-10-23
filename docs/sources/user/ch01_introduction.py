@@ -28,8 +28,9 @@ S_SECTIONS = p("The interface has five sections. You switch between them with th
 S_LIMITS = p("Before you start, it helps to know what ngtop is not.", lead=True) + \
     ul(["It runs on <b>Linux x86_64</b> only. There is no version for other systems or other processors.",
         "It shows <b>the present</b>, with a short history in the graphs. It does not record data over days.",
-        "It watches the machine it runs on. To watch a remote machine, run ngtop there (for example over SSH: " +
-        rif("Running over SSH") + ").",
+        "It watches the machine it runs on, or, through <code>ssh</code>, <b>one</b> remote machine at a time, "
+        "without installing anything there (" + rif("Monitoring another machine") + "). On a remote machine it only <b>looks</b>: "
+        "signals, nice and service actions are not available yet.",
         "<b>AMD</b> and <b>Intel</b> graphics cards are read in full. <b>NVIDIA</b> cards are only detected and listed: "
         "full support is planned.",
         "The Services section needs <b>systemd</b>. Without it the section says so and the rest of ngtop works as usual.",
@@ -46,7 +47,7 @@ S_CONV = p("The text of this manual uses a few simple conventions.", lead=True) 
     p("Examples labelled <b>Console</b> show a session at the shell prompt. The prompt is <code>$</code>; what comes "
       "after it is what you type, and the lines below are the answer.") + \
     term("""$ ngtop --version
-ngtop 1.0.0
+ngtop 1.5.0
 Licence: PolyForm Noncommercial 1.0.0 — free for noncommercial use""", "Console") + \
     p("The pictures of ngtop in this manual are real screens of the program, taken on a demonstration machine with "
       "sample data. On your computer the numbers and the names are of course different.") + \

@@ -1,0 +1,9 @@
+FROM docker.io/library/alpine:3.20
+RUN apk add --no-cache openssh-server && ssh-keygen -A \
+ && adduser -D -s /bin/sh tester && passwd -u tester >/dev/null 2>&1 || true
+RUN sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+ && echo "AllowUsers tester" >> /etc/ssh/sshd_config
+# alpine locks new accounts: give an unusable but unlocked password hash
+RUN echo 'tester:*' | chpasswd -e 2>/dev/null; sed -i 's/^tester:!/tester:*/' /etc/shadow
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D", "-e"]
