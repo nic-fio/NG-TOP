@@ -35,7 +35,7 @@ GROUPS = [
     ]),
     ("Reading sources and remote machines", [
         ("src/source/mod.rs", "The " + c("Source") + " and " + c("CommandRunner") + " traits, their local implementations, " + c("RemoteStatus") + ": the single place through which the collectors read"),
-        ("src/source/actions.rs", "The " + c("ActionBackend") + " trait and " + c("LocalActions") + ": signals and nice locally and remotely"),
+        ("src/source/actions.rs", "The " + c("ProcActions") + " trait and " + c("LocalActions") + ": signals and nice on this machine, with the start-time check"),
         ("src/remote/mod.rs", c("connect()") + ", " + c("ConnectOptions") + ", the ssh command (" + c("NGTOP_SSH") + ")"),
         ("src/remote/agent.sh", "The POSIX shell script sent to the remote machine on stdin and run in memory: the reader that answers the requests"),
         ("src/remote/session.rs", "The persistent ssh session, the nonce, the record protocol, " + c("sh_quote()")),

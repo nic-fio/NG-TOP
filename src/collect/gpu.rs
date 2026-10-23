@@ -23,7 +23,7 @@ pub enum GpuState {
     Idle,
     /// Driver non supportato: solo rilevata.
     Unsupported,
-    /// NVIDIA senza `nvidia-smi` (driver nouveau o utility non installate): solo rilevata.
+    /// Driver nvidia senza `nvidia-smi` installato: solo rilevata.
     NoTool,
     /// `nvidia-smi` in timeout o in errore: si riprova più tardi.
     NotResponding,

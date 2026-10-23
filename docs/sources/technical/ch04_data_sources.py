@@ -236,10 +236,10 @@ GPUFLOW = fig(
     + arrow(666, 58, 698, 58, "#16a34a", False, "no")
     + arrow(335, 94, 335, 148, "#d97706", False, "no", 350, 128)
     + arrow(570, 94, 570, 148, "#d97706", False, "yes", 586, 128),
-    900, 232, "«FIG» — What the GPU collector does with each card, before it reads anything")
+    900, 232, "«FIG» — What the GPU collector does with each card, before it reads anything (an awake NVIDIA card is read through nvidia-smi instead of sysfs, see below)")
 
-S8 = p("GPU data comes from two places: the device's own files in sysfs, and, for who uses the GPU, the " + c("fdinfo") + " "
-       "file of every open GPU descriptor of every process.", lead=True) + GPUFLOW + \
+S8 = p("GPU data comes from three places: the device's own files in sysfs; for who uses the GPU, the " + c("fdinfo") + " "
+       "file of every open GPU descriptor of every process; and, for NVIDIA cards, the output of " + c("nvidia-smi") + " (described below).", lead=True) + GPUFLOW + \
     table(["State", "When", "What ngtop does"], [
         [c("Active"), "the card is awake", "reads everything"],
         [c("Idle"), "an <i>integrated</i> GPU whose runtime power management says “suspended” or “suspending”", "reads it normally: it shares the processor's "
@@ -247,7 +247,7 @@ S8 = p("GPU data comes from two places: the device's own files in sysfs, and, fo
         [c("Suspended"), "a <i>discrete</i> GPU with " + c("power/runtime_status") + " “suspended” or “suspending”, or " + c("power_state") + " “D3cold”",
          "reads <b>none of its usage, memory, clock, sensor or link files</b> (and never starts " + c("nvidia-smi") + " for it), so it is not woken; the screen says it is asleep and whether it is in D3cold"],
         [c("Unsupported"), "any other driver, such as nouveau", "shows the name; nothing else"],
-        [c("NoTool"), "an NVIDIA card (driver " + c("nvidia") + ") and " + c("nvidia-smi") + " is not installed (" + c("NotFound") + ", or exit status 127 from the remote shell)",
+        [c("NoTool"), "an NVIDIA card (driver " + c("nvidia") + ") and " + c("nvidia-smi") + " is not installed (exit status 127 from the " + c("sh") + " guard, locally or remotely; " + c("NotFound") + " only if the runner cannot start the command)",
          "shows the name and “detected — install nvidia-smi for metrics” (“install nvidia-smi” in the compact layout); checks again every 60 s (" + c("NOTOOL_RECHECK") + ")"],
         [c("NotResponding"), c("nvidia-smi") + " timed out (3 s), failed, returned no cards, or its latest sample is older than 10 s (" + c("MAX_AGE") + ")",
          "shows “nvidia-smi not responding — retrying” (“nvidia-smi not responding” in the compact layout); asks again after a pause that doubles from 2 s up to 30 s (" + c("BACKOFF_MAX") + ")"],
@@ -261,7 +261,7 @@ S8 = p("GPU data comes from two places: the device's own files in sysfs, and, fo
       "In each round the worker runs the card query (" + c("--query-gpu=<fields> --format=csv,noheader,nounits") + ") and then " + c("pmon -c 1 -s um") + ". "
       "If the driver rejects a field in " + c("FIELDS_FULL") + " (" + c("is_unknown_field_error()") + "), the query is repeated with the basic list (" + c("FIELDS_BASE") + ") and the choice is remembered; " + c("[N/A]") + " and " + c("[Not Supported]") + " become “—”. "
       "If " + c("pmon") + " fails or is not supported, the worker falls back to " + c("--query-compute-apps=gpu_bus_id,pid,used_memory --format=csv,noheader,nounits") + ", which lists only CUDA processes (" + c("procs_compute_only") + ", shown in the title of the “GPU processes” table as “only CUDA processes are listed on this GPU” when that card is selected); " + c("pmon") + " is retried every 30 rounds (" + c("PMON_RETRY_EVERY") + "). "
-      "If " + c("nvidia-smi") + " is missing (" + c("NotFound") + " or exit code 127), the state is " + c("NoTool") + " (“install nvidia-smi”). "
+      "If " + c("nvidia-smi") + " is missing (exit code 127 from the guard), the state is " + c("NoTool") + " (“install nvidia-smi”). "
       "Each command has a 3 s timeout (" + c("CMD_TIMEOUT") + "); on timeout or error the state is " + c("NotResponding") + " (“nvidia-smi not responding”) and the retry wait grows up to 30 s (" + c("BACKOFF_MAX") + "). "
       "Everything from " + c("nvidia-smi") + " (" + c("src/collect/nvidia.rs") + ") is treated as hostile: at most 256 KB (" + c("MAX_OUTPUT") + ") are read (" + c("lossy()") + ", " + c("limita()") + "), at most 64 cards (" + c("MAX_GPUS") + ") and 4096 processes (" + c("MAX_PROCS") + ") are kept, control characters are stripped from card names (capped at 96 chars, " + c("MAX_NAME") + "), and all numbers are bounded to finite ranges, never panicking. "
       "Known limits: on GeForce cards some fields are " + c("[Not Supported]") + ", graphics applications are not always listed, " + c("nouveau") + " is not supported, and the " + c("sh") + " guard does not check " + c("power_state=D3cold") + " (which is covered by the pre-check " + c("is_suspended()") + " on the data of the last refresh).") + \

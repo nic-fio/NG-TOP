@@ -62,9 +62,9 @@ S5 = p("Of the three GPU makers, AMD and Intel publish their counters in the ker
     table(["Choice", "Consequence"], [
         ["Do not use NVML", "A binding to NVML (or any crate that loads it) would add a dynamic dependency and break the single static file"],
         ["Run nvidia-smi", "The tool installed with the driver is a normal program: ngtop starts it and reads its text output, like " + c("ssh") + " or " + c("journalctl") + ". It also works on a remote machine"],
-        ["Cost", "A process is started every ~2 s, in a separate thread, with a 3 s timeout; if the program is missing the card is only listed (" + c("NoTool") + ")"],
+        ["Cost", "Two short processes are started every ~2 s (the card query, then " + c("pmon") + " or " + c("--query-compute-apps") + "), each through the " + c("sh") + " guard, in a separate thread, with a 3 s timeout; if the program is missing the card is only listed (" + c("NoTool") + ")"],
     ], "«TAB» — How NVIDIA is read without NVML") + \
-    warn("Anything that would bring a dynamic dependency back — an NVML binding, a crate that links a system library, a call to a tool that is not installed everywhere — "
+    warn("Anything that would bring a dynamic dependency back — an NVML binding, a crate that links a system library, a call to a tool that is not installed everywhere (unless it is optional and its absence is handled, like " + c("nvidia-smi") + ") — "
          "goes against the central promise. Discuss it before writing it.", "The promise.")
 
 CHAPTER = ("The static build", [

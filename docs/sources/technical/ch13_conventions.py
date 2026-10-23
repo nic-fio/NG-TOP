@@ -28,7 +28,7 @@ S2 = p("A monitor runs for weeks beside everything else on a machine. It must no
         ["Paths from the roots", "Collectors take their paths from " + c("Roots") + " (the literals are the defaults in " + c("Roots::default()") + "). The Services code has two parameters of its own, " + c("run_dir") + " and " + c("cgroup_root") + ". Still literal: the zoneinfo folders, and one read of " + c("/proc/PID/comm") + " in the services thread"],
         ["Bound the data", "Lists from the system are capped (200 open files, 500 environment variables, 50 journal lines), and the configuration file is read only if it is a small regular file"],
         ["Never block the interface thread", "Slow or possibly blocking work goes to a thread with a channel (" + rif("Threads") + ")"],
-        ["Do not run anything through a shell", "External programs get a fixed list of arguments. On a remote machine the arguments are quoted one by one (" + c("sh_quote()") + ") and the data from the server are checked before use (" + rif("Remote security") + ")"],
+        ["Do not run anything through a shell", "External programs get a fixed list of arguments. The one exception is the fixed " + c("sh") + " guard in front of " + c("nvidia-smi") + ": its script is a constant and the cards and the command reach it as separate arguments. On a remote machine the arguments are quoted one by one (" + c("sh_quote()") + ") and the data from the server are checked before use (" + rif("Remote security") + ")"],
         ["Pure Rust dependencies", rif("Dependencies: Rust only")],
     ], "«TAB» — Robustness rules")
 

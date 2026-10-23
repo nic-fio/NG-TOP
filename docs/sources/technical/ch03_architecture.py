@@ -120,7 +120,7 @@ S4 = p("ngtop starts three kinds of thread, and none of them is a pool: each exi
          "a request channel in, one shared answer channel out"],
         [c("ngtop-nvidia"), c("NvClient::spawn()"), "from the first awake NVIDIA card to exit",
          "runs " + c("nvidia-smi") + " every 2 s (through the " + c("sh") + " guard, with a 3 s timeout) for the awake NVIDIA cards",
-         "a shared " + c("NvSnap") + " under a mutex"],
+         "an " + c("mpsc") + " channel of " + c("NvResult") + " values out; the list of awake cards under a mutex in"],
         [c("ngtop-services"), c("Client::spawn()"), "from the first visit to the Services section to exit",
          "executes " + c("Request") + " values: unit lists, details, sessions, boot times", "two " + c("mpsc") + " channels"],
         [c("ngtop-journal") + ", " + c("ngtop-blame"), c("run()") + " in " + c("worker.rs"), "one request",

@@ -102,7 +102,7 @@ S4 = p("Starting and stopping a service is another action that cannot be undone 
         ["Read errors", "Texts like " + c("AccessDenied") + ", " + c("InteractiveAuthorizationRequired") + " or “not authorized” become “denied”; everything else is shown as received (" + c("classify_error()") + ")"],
         ["Fresh state", "After enable or disable, the cache of unit file states is aged so the next list shows the change"],
     ], "«TAB» — How service actions are protected") + \
-    p("What ngtop does <i>not</i> do: it never edits unit files, never masks, never runs a command through a shell. Its two external programs in this section, "
+    p("What ngtop does <i>not</i> do: it never edits unit files, never masks, never runs a service command through a shell. Its two external programs in this section, "
       + c("journalctl") + " and " + c("systemd-analyze") + ", are read-only and get a fixed list of arguments, with the unit name as a separate argument and never through a shell.")
 
 S5 = p("A discrete GPU in D3cold or runtime-suspended costs almost nothing; reading its files or running " + c("nvidia-smi") + " on it wakes it, which can take a second and a few watts. A monitor "
