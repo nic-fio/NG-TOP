@@ -30,7 +30,7 @@ S1 = p("<b>ngtop</b> is a system monitor for the terminal. It joins the processo
        "distribution and it runs, with nothing to install. This manual explains how it works, for whoever wants "
        "to understand it, maintain it or extend it.", lead=True) + OVERVIEW + \
     table(["Item", "Value"], [
-        ["Version", c("0.1.0") + " (" + c("Cargo.toml") + ")"],
+        ["Version", c("1.0.0") + " (" + c("Cargo.toml") + ")"],
         ["Language", "Rust, edition 2024; interface drawn with " + c("ratatui") + " 0.30 on " + c("crossterm") + " 0.29"],
         ["Target", c("x86_64-unknown-linux-musl") + ", fully static (" + rif("The static build") + ")"],
         ["Sections", "Overview, GPU, Processes, Network &amp; Disks, Services (keys " + c("1") + " to " + c("5") + ")"],

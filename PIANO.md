@@ -1,4 +1,4 @@
-# Riepilogo — ngtop 0.1.0 (23/10/2026)
+# Riepilogo — ngtop 1.0.0 (23/10/2026)
 
 Monitor di sistema da terminale (btop + nvtop + Gestore attività), Rust + ratatui, binario statico musl
 (`./build.sh` → `dist/ngtop`, ~3.5 MB, nessun percorso locale dentro). Interfaccia in inglese, cinque sezioni

@@ -46,7 +46,7 @@ S_CONV = p("The text of this manual uses a few simple conventions.", lead=True) 
     p("Examples labelled <b>Console</b> show a session at the shell prompt. The prompt is <code>$</code>; what comes "
       "after it is what you type, and the lines below are the answer.") + \
     term("""$ ngtop --version
-ngtop 0.1.0
+ngtop 1.0.0
 Licence: PolyForm Noncommercial 1.0.0 — free for noncommercial use""", "Console") + \
     p("The pictures of ngtop in this manual are real screens of the program, taken on a demonstration machine with "
       "sample data. On your computer the numbers and the names are of course different.") + \

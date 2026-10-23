@@ -1,6 +1,6 @@
 [package]
 name = "ngtop"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "Terminal system monitor: CPU, memory, GPU, network, disks, processes and services in one static binary"
 license = "PolyForm-Noncommercial-1.0.0"

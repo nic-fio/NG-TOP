@@ -11,7 +11,7 @@ use ratatui::style::{Modifier, Style};
 use crate::ui::theme;
 
 const BRAND: &str = "ngtop";
-const VERSION: &str = " 0.1 │ ";
+const VERSION: &str = " 1.0 │ ";
 
 pub struct TabBar<'a> {
     pub tabs: &'a [&'a str],

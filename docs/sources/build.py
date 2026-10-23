@@ -47,7 +47,7 @@ keys_table(section) and options_table()
     binary; `build.py --refresh-doc` rewrites it by hand). If there is no binary the file is used;
     if there is neither, they show a visible placeholder "GENERATED: keys of <section>" and
     --check reports it as missing. Format of the JSON:
-        {"version": "0.1.0",
+        {"version": "1.0.0",
          "sections": [{"name": "Overview", "keys": [["F1", "Help"], ...],   # bottom bar
                        "help": [["Up Down PgUp PgDn", "select"], ...]},     # lines of the F1 help
                       ... Overview, GPU, Processes, Network & Disks, Services],
