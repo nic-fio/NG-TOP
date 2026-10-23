@@ -124,8 +124,20 @@ ngtop --snapshot 120x40 alex@server
 
 ## Known limits
 
-- NVIDIA GPUs are only detected ("support coming soon"); AMD (amdgpu) and Intel
-  (i915, xe) are supported. Suspended discrete GPUs are not queried, so as not to wake them.
+- GPUs: AMD (amdgpu), Intel (i915, xe) and NVIDIA (proprietary driver, read in a background
+  thread every 2 s through `nvidia-smi`: card query then `pmon`, or `--query-compute-apps` for
+  CUDA processes only with a note in the process table title for the selected card, retrying
+  `pmon` every 30 rounds; fallback to basic fields on older drivers; `"install nvidia-smi"` if
+  missing or exit code 127; 3 s timeout or error → `"nvidia-smi not responding"` with backoff up
+  to 30 s, and results older than 10 s are discarded; output capped at 256 KB, control characters
+  stripped from names, numbers bounded; over SSH each command occupies the session while it runs;
+  not yet tested on real hardware in 1.7.0-rc1). Only awake cards are queried (`-i <bus id>`), and
+  every launch goes through a small `sh` guard on the observed machine that re-reads
+  `power/runtime_status` in the same shell right before running `nvidia-smi` and launches nothing
+  if a card is `suspended`/`suspending` or unreadable, waiting a full 2 s round if asleep (the
+  guard does not check `power_state=D3cold`, which is covered by the pre-check on the last
+  refresh's data). On GeForce cards some fields are `[Not Supported]` and graphics applications
+  are not always listed; the open-source `nouveau` driver is not supported.
 - Some data needs root privileges: I/O and fds of other users' processes, power (RAPL),
   GPU usage of other users' processes. Without permissions you see "—".
 - The Services section needs systemd (D-Bus); elsewhere it reports that systemd was not found.
