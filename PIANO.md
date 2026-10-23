@@ -1,5 +1,17 @@
 # PIANO
 
+## Riepilogo — ngtop 1.7.0-rc1 (23/10/2026)
+NVIDIA tramite `nvidia-smi` (niente NVML: è una libreria C e romperebbe l'eseguibile statico), in locale e in remoto:
+- thread `src/collect/nvidia_worker.rs`, un giro ogni 2 s (query, poi `pmon` oppure `--query-compute-apps`);
+  ripiego sui campi di base; stati "install nvidia-smi" e "not responding";
+- non sveglia la scheda: si interrogano solo le schede sveglie (`-i`) e ogni lancio passa da una guardia `sh` che
+  rilegge `runtime_status` sulla macchina osservata subito prima dell'`exec`;
+- parser `src/collect/nvidia.rs` su uscite ostili (limiti, nome ripulito, fuzz); fixture costruite a mano in
+  `tests/fixtures/nvidia/`.
+Revisione: 4 giri con sabotaggio, approvata. 325 test, 32 casi nei container.
+Da fare per la 1.7.0: prove sulla scheda vera (lista in ch11 del manuale tecnico), nello stesso periodo di remotix;
+nota aperta: la guardia non controlla `power_state` = D3cold (lo copre il prefiltro).
+
 ## Riepilogo — ngtop 1.6.0 (23/10/2026)
 Azioni sulle macchine remote:
 - segnali e nice, con l'ora di avvio verificata sul server nella stessa chiamata;

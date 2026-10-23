@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 //! GPU: rilevamento da /sys/class/drm, metriche amdgpu / i915 / xe e uso per processo da fdinfo.
-//! Le GPU sospese non vengono interrogate (per non svegliarle); NVIDIA è solo rilevata.
+//! Le GPU sospese non vengono interrogate (per non svegliarle). NVIDIA: dati e processi da `nvidia-smi`,
+//! letto da un thread (`nvidia_worker`) che non parte finché c'è una scheda sveglia.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::Roots;
+use super::nvidia::NvGpu;
+use super::nvidia_worker::{MAX_AGE, NvClient, NvResult, NvStatus, NvTarget};
 use crate::source::Source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -18,8 +21,12 @@ pub enum GpuState {
     Suspended,
     /// Integrata con runtime PM "suspended": si legge normalmente (non c'è nulla da risparmiare).
     Idle,
-    /// Driver non supportato (es. nvidia): solo rilevata.
+    /// Driver non supportato: solo rilevata.
     Unsupported,
+    /// NVIDIA senza `nvidia-smi` (driver nouveau o utility non installate): solo rilevata.
+    NoTool,
+    /// `nvidia-smi` in timeout o in errore: si riprova più tardi.
+    NotResponding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -85,6 +92,8 @@ pub struct Gpu {
     /// "4.0 ×16".
     pub pcie: Option<String>,
     pub pcie_max: Option<String>,
+    /// NVIDIA senza `pmon`: i processi vengono da `--query-compute-apps` (solo CUDA).
+    pub procs_compute_only: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -513,9 +522,10 @@ fn igpu_pdev(pdev: &str) -> bool {
     pdev.starts_with("0000:00:")
 }
 
-fn is_suspended(s: &dyn Source, dev: &Path) -> bool {
+/// "suspending" conta come sospesa: la scheda sta per dormire e interrogarla la sveglierebbe.
+pub(super) fn is_suspended(s: &dyn Source, dev: &Path) -> bool {
     s.read_text(&dev.join("power/runtime_status"))
-        .is_some_and(|s| s.trim() == "suspended")
+        .is_some_and(|s| matches!(s.trim(), "suspended" | "suspending"))
         || s.read_text(&dev.join("power_state"))
             .is_some_and(|s| s.trim() == "D3cold")
 }
@@ -531,6 +541,10 @@ pub struct GpuCollector {
     /// AMD: la scheda è integrata? (noto dopo la prima lettura; ignota → trattata da discreta)
     amd_igpu: HashMap<String, bool>,
     round: u64,
+    /// Thread di `nvidia-smi`, avviato alla prima scheda nvidia sveglia.
+    nv: Option<NvClient>,
+    /// Ultimo risultato di `nvidia-smi` usabile in questo giro (con lo stato effettivo).
+    nv_view: Option<(NvStatus, NvResult)>,
 }
 
 /// Processo noto, per la scansione dei fd.
@@ -610,12 +624,52 @@ fn work_kind(c: &ClientRaw) -> WorkKind {
     }
 }
 
+fn pct(v: Option<f64>) -> f64 {
+    v.filter(|x| x.is_finite()).unwrap_or(0.0).clamp(0.0, 100.0)
+}
+
+/// Copia i dati di nvidia-smi nella scheda (il nome di sysfs / pci.ids resta se c'è).
+fn apply_nv(g: &mut Gpu, n: &NvGpu) {
+    let fallback = format!(
+        "{} GPU [{:04x}:{:04x}]",
+        vendor_short(g.vendor),
+        g.vendor,
+        g.device
+    );
+    if g.name == fallback
+        && let Some(name) = n.name.as_ref().filter(|s| !s.is_empty())
+    {
+        g.name = name.clone();
+    }
+    g.usage = n.usage;
+    g.enc = n.enc;
+    g.dec = n.dec;
+    g.vram_used = n.vram_used;
+    g.vram_total = n.vram_total;
+    g.clock_mhz = n.clock_mhz;
+    g.clock_max_mhz = n.clock_max_mhz;
+    g.mem_clock_mhz = n.mem_clock_mhz;
+    g.temp = n.temp;
+    g.temps = n.temp.map(|t| ("GPU".to_string(), t)).into_iter().collect();
+    g.power_w = n.power_w;
+    g.power_cap_w = n.power_cap_w;
+    g.fan_pct = n.fan_pct;
+    g.pcie = n.pcie.clone();
+    g.pcie_max = n.pcie_max.clone();
+}
+
 impl GpuCollector {
     /// Aggiorna `info`. `pids` sono i processi noti (già letti da /proc); `dt` in secondi.
     pub fn refresh(&mut self, info: &mut GpuInfo, roots: &Roots, pids: &[PidInfo], dt: f64) {
         self.round += 1;
         let s = &*roots.src;
         let mut devices = self.discover(roots);
+        // Per le schede nvidia valgono solo i dati di nvidia-smi: i client DRM si ignorano (niente doppi conteggi).
+        let nv_pdevs: Vec<String> = devices
+            .iter()
+            .filter(|g| g.driver == "nvidia")
+            .map(|g| g.pdev.clone())
+            .collect();
 
         // 1. client DRM, deduplicati per (pdev, client-id) con il pid più basso.
         let mut sorted: Vec<PidInfo> = pids.iter().copied().filter(|p| !p.kernel).collect();
@@ -655,6 +709,9 @@ impl GpuCollector {
                 let Some(c) = s.read_text(&path).and_then(|t| parse_fdinfo(&t)) else {
                     continue;
                 };
+                if nv_pdevs.contains(&c.pdev) {
+                    continue;
+                }
                 let key = (c.pdev.clone(), c.client_id);
                 if seen.insert(key, ()).is_none() {
                     clients.push((pid, c));
@@ -737,10 +794,15 @@ impl GpuCollector {
                 p
             })
             .collect();
+        self.add_nv_procs(&mut procs, &devices, pids);
         procs.sort_by(|a, b| a.pid.cmp(&b.pid).then(a.pdev.cmp(&b.pdev)));
 
         // 4. per dispositivo
         for g in &mut devices {
+            // nvidia: solo nvidia-smi, nessun motore da fdinfo
+            if g.driver == "nvidia" {
+                continue;
+            }
             let mut per_engine: HashMap<String, f64> = HashMap::new();
             let mut sys_mem = 0u64;
             let mut any = false;
@@ -806,6 +868,7 @@ impl GpuCollector {
         // pci.ids si legge solo se compare una scheda nuova e si libera subito dopo.
         let mut pci_ids: Option<String> = None;
         let mut out = Vec::new();
+        let mut nv_awake: Vec<NvTarget> = Vec::new();
         for (_, card) in cards {
             if !self.statics.contains_key(&card)
                 && let Some(g) = read_static(roots, &card, &mut pci_ids)
@@ -824,7 +887,21 @@ impl GpuCollector {
                 "amdgpu" => self.amd_igpu.get(&card).copied().unwrap_or(false),
                 _ => false,
             };
-            if !matches!(g.driver.as_str(), "amdgpu" | "i915" | "xe") {
+            if g.driver == "nvidia" {
+                if suspended {
+                    g.state = GpuState::Suspended;
+                    g.d3cold = s
+                        .read_text(&dev.join("power_state"))
+                        .is_some_and(|s| s.trim() == "D3cold");
+                } else {
+                    // dati da nvidia-smi, completati dopo il ciclo
+                    g.state = GpuState::Active;
+                    nv_awake.push(NvTarget {
+                        bus_id: g.pdev.clone(),
+                        dev: dev.clone(),
+                    });
+                }
+            } else if !matches!(g.driver.as_str(), "amdgpu" | "i915" | "xe") {
                 g.state = GpuState::Unsupported;
             } else if suspended && !igpu {
                 g.state = GpuState::Suspended;
@@ -846,7 +923,93 @@ impl GpuCollector {
             }
             out.push(g);
         }
+        self.apply_nvidia(roots, &mut out, nv_awake);
         out
+    }
+
+    /// Avvia (se serve) il thread nvidia, gli dice se c'è una scheda sveglia e riempie le schede nvidia
+    /// con l'ultimo risultato pronto. Non aspetta mai.
+    fn apply_nvidia(&mut self, roots: &Roots, devices: &mut [Gpu], awake: Vec<NvTarget>) {
+        if !awake.is_empty() && self.nv.is_none() {
+            self.nv = Some(NvClient::spawn(roots.run.clone(), roots.src.clone()));
+        }
+        self.nv_view = None;
+        let Some(nv) = self.nv.as_mut() else {
+            return;
+        };
+        let any = !awake.is_empty();
+        nv.set_targets(awake);
+        if !any {
+            return;
+        }
+        // risultati troppo vecchi: come se il comando non rispondesse
+        let view = nv.latest().map(|r| {
+            let st = if r.status == NvStatus::Ok && r.at.elapsed() > MAX_AGE {
+                NvStatus::NotResponding
+            } else {
+                r.status
+            };
+            (st, r.clone())
+        });
+        for g in devices
+            .iter_mut()
+            .filter(|g| g.driver == "nvidia" && g.state == GpuState::Active)
+        {
+            match &view {
+                // nessuna risposta ancora: attiva, senza dati
+                None => {}
+                Some((NvStatus::NoTool, _)) => g.state = GpuState::NoTool,
+                Some((NvStatus::NotResponding, _)) => g.state = GpuState::NotResponding,
+                Some((NvStatus::Ok, r)) => {
+                    if let Some(n) = r.gpus.iter().find(|n| n.bus_id.as_deref() == Some(&g.pdev)) {
+                        apply_nv(g, n);
+                    }
+                    g.procs_compute_only = r.compute_only;
+                }
+            }
+        }
+        self.nv_view = view;
+    }
+
+    /// Processi da nvidia-smi per le schede nvidia attive; solo pid che esistono in `pids`.
+    fn add_nv_procs(&self, procs: &mut Vec<GpuProc>, devices: &[Gpu], pids: &[PidInfo]) {
+        let Some((NvStatus::Ok, r)) = &self.nv_view else {
+            return;
+        };
+        let active = |pdev: &str| {
+            devices
+                .iter()
+                .any(|g| g.pdev == pdev && g.driver == "nvidia" && g.state == GpuState::Active)
+        };
+        let known: std::collections::HashSet<u32> = pids.iter().map(|p| p.pid).collect();
+        let mut seen: std::collections::HashSet<(u32, String)> = std::collections::HashSet::new();
+        for p in &r.procs {
+            if !known.contains(&p.pid) {
+                continue;
+            }
+            let pdev = p.bus_id.clone().or_else(|| {
+                let i = p.gpu_index?;
+                r.gpus
+                    .iter()
+                    .find(|n| n.index == Some(i))
+                    .and_then(|n| n.bus_id.clone())
+            });
+            let Some(pdev) = pdev.filter(|d| active(d)) else {
+                continue;
+            };
+            if !seen.insert((p.pid, pdev.clone())) {
+                continue;
+            }
+            procs.push(GpuProc {
+                pid: p.pid,
+                pdev,
+                gpu_pct: pct(p.gpu_pct),
+                enc_pct: pct(p.enc_pct),
+                dec_pct: pct(p.dec_pct),
+                kind: p.kind,
+                mem: p.mem.unwrap_or(0),
+            });
+        }
     }
 }
 

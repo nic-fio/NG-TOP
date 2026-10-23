@@ -3,18 +3,113 @@
 
 //! Raccoglitore GPU e viste GPU su fixture realistiche (amdgpu, i915, xe, sospesa, NVIDIA).
 
+use std::io;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use ngtop::collect::gpu::{GpuState, WorkKind};
 use ngtop::collect::{Roots, System};
+use ngtop::source::{CommandOutput, CommandRunner};
 use ngtop::ui::app::{App, Section};
 use ngtop::ui::snapshot::{render_app, to_ansi, to_text};
+
+type Handler = Box<dyn Fn(&[&str]) -> io::Result<CommandOutput> + Send + Sync>;
+
+/// Comandi finti: registra le chiamate e risponde con `f`.
+struct FakeRun {
+    calls: Mutex<Vec<Vec<String>>>,
+    timeouts: Mutex<Vec<Duration>>,
+    f: Handler,
+}
+
+impl FakeRun {
+    fn new(
+        f: impl Fn(&[&str]) -> io::Result<CommandOutput> + Send + Sync + 'static,
+    ) -> Arc<FakeRun> {
+        Arc::new(FakeRun {
+            calls: Mutex::new(Vec::new()),
+            timeouts: Mutex::new(Vec::new()),
+            f: Box::new(f),
+        })
+    }
+    /// Nessun comando esiste.
+    fn none() -> Arc<FakeRun> {
+        FakeRun::new(|_| Err(io::Error::new(io::ErrorKind::NotFound, "nvidia-smi")))
+    }
+    fn calls(&self) -> Vec<Vec<String>> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+impl CommandRunner for FakeRun {
+    fn run(&self, argv: &[&str], t: Duration) -> io::Result<CommandOutput> {
+        // `sh -c GUARDIA sh N <file...> nvidia-smi ...`: si registra solo il comando dopo la guardia
+        // (la guardia vera è provata nei test di unità del worker)
+        assert_eq!(&argv[..2], ["sh", "-c"], "{argv:?}");
+        let n: usize = argv[4].parse().unwrap();
+        let argv = &argv[5 + n..];
+        self.timeouts.lock().unwrap().push(t);
+        self.calls
+            .lock()
+            .unwrap()
+            .push(argv.iter().map(|s| s.to_string()).collect());
+        (self.f)(argv)
+    }
+}
+
+fn out(text: &str) -> io::Result<CommandOutput> {
+    Ok(CommandOutput {
+        status: Some(0),
+        stdout: text.as_bytes().to_vec(),
+        stderr: Vec::new(),
+    })
+}
+
+fn out_rc(rc: i32, stdout: &str, stderr: &str) -> io::Result<CommandOutput> {
+    Ok(CommandOutput {
+        status: Some(rc),
+        stdout: stdout.as_bytes().to_vec(),
+        stderr: stderr.as_bytes().to_vec(),
+    })
+}
+
+fn nv_fixture(name: &str) -> String {
+    std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/nvidia")
+            .join(name),
+    )
+    .unwrap()
+}
 
 fn roots(name: &str) -> Roots {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/gpu")
         .join(name);
-    Roots::with_dirs(base.join("proc"), base.join("sys"), base.join("etc"))
+    let mut r = Roots::with_dirs(base.join("proc"), base.join("sys"), base.join("etc"));
+    // mai nvidia-smi vero nei test
+    r.run = FakeRun::none();
+    r
+}
+
+fn system_with(name: &str, run: Arc<FakeRun>) -> System {
+    let mut s = new_system(name);
+    s.roots.run = run;
+    s
+}
+
+/// Rinfresca finché `cond` è vera (al massimo 5 s).
+fn wait_for(s: &mut System, what: &str, cond: impl Fn(&System) -> bool) {
+    let t0 = Instant::now();
+    loop {
+        s.refresh_with_dt(1.0);
+        if cond(s) {
+            return;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(5), "timeout: {what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn new_system(name: &str) -> System {
@@ -204,10 +299,12 @@ fn testo_sospesa_d3cold_o_solo_rpm() {
 }
 
 #[test]
-fn nvidia_solo_rilevata() {
-    let s = single("nvidia");
+fn nvidia_senza_nvidia_smi() {
+    let mut s = new_system("nvidia");
+    wait_for(&mut s, "NoTool", |s| {
+        s.gpu.devices[0].state == GpuState::NoTool
+    });
     let g = &s.gpu.devices[0];
-    assert_eq!(g.state, GpuState::Unsupported);
     assert_eq!(g.name, "NVIDIA GeForce RTX 3090");
     assert_eq!(g.usage, None);
 }
@@ -276,8 +373,11 @@ fn viste_gpu_sospesa_nvidia_e_nessuna() {
     let s = single("susp");
     assert!(text(&s, 120, 40, Section::Gpu).contains("not queried, to avoid waking it"));
     assert!(text(&s, 182, 52, Section::Panoramica).contains("suspended"));
-    let n = single("nvidia");
-    assert!(text(&n, 120, 40, Section::Gpu).contains("support coming soon"));
+    let mut n = new_system("nvidia");
+    wait_for(&mut n, "NoTool", |s| {
+        s.gpu.devices[0].state == GpuState::NoTool
+    });
+    assert!(text(&n, 120, 40, Section::Gpu).contains("install nvidia-smi"));
     let z = single("none");
     assert!(text(&z, 120, 40, Section::Gpu).contains("No GPU detected"));
 }
@@ -309,4 +409,284 @@ fn tasto_d_cambia_dispositivo_e_sweep() {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------- nvidia-smi
+
+/// Risposte standard: query completa, pmon misto.
+fn smi_ok() -> Arc<FakeRun> {
+    FakeRun::new(|argv| {
+        if argv.iter().any(|a| a.starts_with("--query-gpu")) {
+            out(&nv_fixture("query_full_3090.txt"))
+        } else if argv.contains(&"pmon") {
+            out(&nv_fixture("pmon_mixed.txt"))
+        } else {
+            out("")
+        }
+    })
+}
+
+#[test]
+fn nvidia_attiva_con_dati_e_processi() {
+    let run = smi_ok();
+    let mut s = system_with("nvidia_procs", run.clone());
+    wait_for(&mut s, "dati", |s| s.gpu.devices[0].usage.is_some());
+    let g = &s.gpu.devices[0];
+    assert_eq!(g.state, GpuState::Active);
+    // il nome di pci.ids resta
+    assert_eq!(g.name, "NVIDIA GeForce RTX 3090");
+    assert_eq!(g.usage, Some(37.0));
+    assert_eq!(g.vram_total, Some(24576 * 1024 * 1024));
+    assert_eq!(g.temp, Some(54.0));
+    assert_eq!(g.power_w, Some(112.45));
+    assert_eq!(g.fan_pct, Some(41.0));
+    assert!(!g.procs_compute_only);
+    // processi: solo i pid noti (1234 e 3456; 2345 non esiste), pdev dalla tabella indice
+    wait_for(&mut s, "processi", |s| !s.gpu.procs.is_empty());
+    let pids: Vec<u32> = s.gpu.procs.iter().map(|p| p.pid).collect();
+    assert_eq!(pids, vec![1234, 3456]);
+    let p = &s.gpu.procs[1];
+    assert_eq!(p.pdev, "0000:01:00.0");
+    assert_eq!(p.kind, WorkKind::Compute);
+    assert_eq!(p.gpu_pct, 85.0);
+    assert_eq!(p.mem, 4096 * 1024 * 1024);
+    assert!(s.gpu.procs.iter().all(|p| p.gpu_pct <= 100.0));
+    // query e pmon sono passati da nvidia-smi
+    assert!(run.calls().iter().all(|c| c[0] == "nvidia-smi"));
+}
+
+#[test]
+fn nvidia_sospesa_non_lancia_nvidia_smi() {
+    let run = smi_ok();
+    let mut s = system_with("nvidia_susp", run.clone());
+    for _ in 0..5 {
+        s.refresh_with_dt(1.0);
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    assert_eq!(s.gpu.devices[0].state, GpuState::Suspended);
+    assert_eq!(s.gpu.devices[0].usage, None);
+    assert!(run.calls().is_empty(), "{:?}", run.calls());
+}
+
+#[test]
+fn nvidia_timeout_e_not_responding() {
+    let run = FakeRun::new(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "timeout")));
+    let mut s = system_with("nvidia", run);
+    wait_for(&mut s, "NotResponding", |s| {
+        s.gpu.devices[0].state == GpuState::NotResponding
+    });
+    assert_eq!(s.gpu.devices[0].usage, None);
+}
+
+#[test]
+fn nvidia_guardia_addormentata_non_e_un_errore_e_non_fa_raffiche() {
+    // rc 97 = la guardia ha trovato la scheda addormentata (nulla è stato lanciato)
+    let run = FakeRun::new(|_| out_rc(97, "", ""));
+    let mut s = system_with("nvidia", run.clone());
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_millis(1500) {
+        s.refresh_with_dt(1.0);
+        assert_ne!(s.gpu.devices[0].state, GpuState::NotResponding);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // dopo un "addormentata" si aspetta un giro intero (2 s), non 50 ms
+    assert!(run.calls().len() <= 2, "{:?}", run.calls());
+}
+
+#[test]
+fn nvidia_comando_assente_in_remoto_rc_127() {
+    let run = FakeRun::new(|_| out_rc(127, "", "sh: nvidia-smi: not found"));
+    let mut s = system_with("nvidia", run);
+    wait_for(&mut s, "NoTool", |s| {
+        s.gpu.devices[0].state == GpuState::NoTool
+    });
+}
+
+#[test]
+fn nvidia_campo_rifiutato_si_ripassa_ai_campi_base() {
+    let run = FakeRun::new(|argv| {
+        if let Some(q) = argv.iter().find(|a| a.starts_with("--query-gpu")) {
+            if q.contains("utilization.encoder") {
+                return out_rc(2, "", &nv_fixture("query_old_driver_stderr.txt"));
+            }
+            return out(&nv_fixture("query_base_old_driver.txt").replace(":02:00.0", ":01:00.0"));
+        }
+        out_rc(
+            0,
+            "Monitoring processes is not supported on this device.\n",
+            "",
+        )
+    });
+    let mut s = system_with("nvidia", run.clone());
+    wait_for(&mut s, "dati base", |s| s.gpu.devices[0].usage.is_some());
+    assert_eq!(s.gpu.devices[0].usage, Some(11.0));
+    assert_eq!(s.gpu.devices[0].enc, None);
+    let q: Vec<String> = run
+        .calls()
+        .iter()
+        .filter_map(|c| c.iter().find(|a| a.starts_with("--query-gpu")).cloned())
+        .collect();
+    assert!(q[0].contains("utilization.encoder"), "{q:?}");
+    assert!(
+        q[1..].iter().all(|x| !x.contains("utilization.encoder")),
+        "{q:?}"
+    );
+}
+
+#[test]
+fn nvidia_senza_pmon_usa_compute_apps() {
+    let run = FakeRun::new(|argv| {
+        if argv.iter().any(|a| a.starts_with("--query-gpu")) {
+            out(&nv_fixture("query_full_3090.txt"))
+        } else if argv.contains(&"pmon") {
+            out(&nv_fixture("pmon_not_supported.txt"))
+        } else {
+            out(&nv_fixture("compute_apps.txt"))
+        }
+    });
+    let mut s = system_with("nvidia_procs", run.clone());
+    wait_for(&mut s, "compute-apps", |s| {
+        s.gpu.devices[0].procs_compute_only && !s.gpu.procs.is_empty()
+    });
+    // 3456 sulla scheda 01:00.0; 7788 (scheda sconosciuta e pid assente) scartato
+    assert_eq!(s.gpu.procs.len(), 1);
+    assert_eq!(s.gpu.procs[0].pid, 3456);
+    assert_eq!(s.gpu.procs[0].mem, 4096 * 1024 * 1024);
+    assert!(
+        run.calls()
+            .iter()
+            .any(|c| c.iter().any(|a| a.starts_with("--query-compute-apps")))
+    );
+}
+
+/// Copia ricorsiva di una fixture in una cartella sotto target/ (modificabile dal test).
+fn copy_fixture(name: &str, to: &str) -> PathBuf {
+    fn cp(a: &std::path::Path, b: &std::path::Path) {
+        std::fs::create_dir_all(b).unwrap();
+        for e in std::fs::read_dir(a).unwrap() {
+            let e = e.unwrap();
+            let t = b.join(e.file_name());
+            if e.file_type().unwrap().is_dir() {
+                cp(&e.path(), &t);
+            } else {
+                std::fs::copy(e.path(), &t).unwrap();
+            }
+        }
+    }
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let dst = base
+        .join("target/test-tmp")
+        .join(format!("{}-{to}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dst);
+    cp(&base.join("tests/fixtures/gpu").join(name), &dst);
+    dst
+}
+
+#[test]
+fn nvidia_due_schede_una_sospesa_interroga_solo_la_sveglia() {
+    let run = FakeRun::new(|argv| {
+        if argv.iter().any(|a| a.starts_with("--query-gpu")) {
+            out(&nv_fixture("query_two_gpus.txt"))
+        } else if argv.contains(&"pmon") {
+            out(&nv_fixture("pmon_not_supported.txt"))
+        } else {
+            out(&nv_fixture("compute_apps.txt"))
+        }
+    });
+    let mut s = system_with("nvidia_two", run.clone());
+    wait_for(&mut s, "dati", |s| {
+        s.gpu.devices.iter().any(|g| g.usage.is_some())
+    });
+    wait_for(&mut s, "compute-apps", |_| {
+        run.calls()
+            .iter()
+            .any(|c| c.iter().any(|a| a.starts_with("--query-compute-apps")))
+    });
+    let calls = run.calls();
+    assert!(calls.len() >= 3, "{calls:?}");
+    for c in &calls {
+        let i = c.iter().position(|a| a == "-i").expect("manca -i");
+        assert_eq!(c[i + 1], "00000000:01:00.0", "{c:?}");
+        assert!(!c.iter().any(|a| a.contains("08:00.0")), "{c:?}");
+    }
+    let sus = s
+        .gpu
+        .devices
+        .iter()
+        .find(|g| g.pdev == "0000:08:00.0")
+        .unwrap();
+    assert_eq!(sus.state, GpuState::Suspended);
+    assert_eq!(sus.usage, None);
+}
+
+#[test]
+fn nvidia_scheda_che_si_sospende_non_viene_piu_interrogata() {
+    let dir = copy_fixture("nvidia", "sospende");
+    let run = smi_ok();
+    let mut r = Roots::with_dirs(dir.join("proc"), dir.join("sys"), dir.join("etc"));
+    r.run = run.clone();
+    let mut s = System::new(r);
+    s.clock_ticks = 100;
+    s.page_size = 4096;
+    wait_for(&mut s, "dati", |s| s.gpu.devices[0].usage.is_some());
+    std::fs::write(
+        dir.join("sys/class/drm/card0/device/power/runtime_status"),
+        "suspended\n",
+    )
+    .unwrap();
+    // lascia finire un eventuale giro già in corso, poi nessuna nuova chiamata anche senza refresh
+    std::thread::sleep(Duration::from_millis(300));
+    let n = run.calls().len();
+    std::thread::sleep(Duration::from_millis(2600));
+    assert_eq!(run.calls().len(), n, "{:?}", run.calls());
+    s.refresh_with_dt(1.0);
+    assert_eq!(s.gpu.devices[0].state, GpuState::Suspended);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn nvidia_suspending_conta_come_sospesa() {
+    let dir = copy_fixture("nvidia", "suspending");
+    std::fs::write(
+        dir.join("sys/class/drm/card0/device/power/runtime_status"),
+        "suspending\n",
+    )
+    .unwrap();
+    let run = smi_ok();
+    let mut r = Roots::with_dirs(dir.join("proc"), dir.join("sys"), dir.join("etc"));
+    r.run = run.clone();
+    let mut s = System::new(r);
+    s.refresh_with_dt(0.0);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(s.gpu.devices[0].state, GpuState::Suspended);
+    assert!(run.calls().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn nvidia_timeout_dei_comandi_al_massimo_3_secondi() {
+    let run = smi_ok();
+    let mut s = system_with("nvidia_procs", run.clone());
+    wait_for(&mut s, "processi", |s| !s.gpu.procs.is_empty());
+    let t = run.timeouts.lock().unwrap().clone();
+    assert!(t.len() >= 2);
+    assert!(t.iter().all(|d| *d <= Duration::from_secs(3)), "{t:?}");
+}
+
+#[test]
+fn nvidia_uscita_oltre_il_limite_non_si_legge() {
+    // righe valide solo dopo MAX_OUTPUT byte di riempitivo
+    let run = FakeRun::new(|argv| {
+        if argv.iter().any(|a| a.starts_with("--query-gpu")) {
+            let pad = "#".repeat(ngtop::collect::nvidia::MAX_OUTPUT + 16);
+            out(&format!("{pad}\n{}", nv_fixture("query_full_3090.txt")))
+        } else {
+            out("")
+        }
+    });
+    let mut s = system_with("nvidia", run);
+    wait_for(&mut s, "NotResponding", |s| {
+        s.gpu.devices[0].state == GpuState::NotResponding
+    });
+    assert_eq!(s.gpu.devices[0].usage, None);
 }

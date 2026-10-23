@@ -1,0 +1,4 @@
+# gpu         pid   type     sm    mem    enc    dec    jpg    ofa     fb   ccpm    command
+# Idx           #    C/G      %      %      %      %      %      %     MB     MB       name
+    0       4321     C+G     20      8      1      2      0      0    700      0       gnome-shell
+    1       5432       C     99     60      0      0      0      0  10240      0       train.py --epochs 3

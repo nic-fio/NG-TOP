@@ -10,6 +10,8 @@ pub mod gpu;
 pub mod load;
 pub mod mem;
 pub mod net;
+pub mod nvidia;
+pub mod nvidia_worker;
 pub mod procdetail;
 pub mod process;
 pub mod sensors;

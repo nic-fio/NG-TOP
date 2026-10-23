@@ -21,7 +21,7 @@ fn senza_terminale_non_apre_la_tui() {
 fn aiuto_e_versione_funzionano_senza_terminale() {
     for (arg, needle) in [
         ("--help", "Usage: ngtop"),
-        ("-V", "ngtop 1.6"),
+        ("-V", "ngtop 1.7"),
         ("-V", "Licence: PolyForm Noncommercial 1.0.0"),
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_ngtop"))

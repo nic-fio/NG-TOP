@@ -1,0 +1,1 @@
+0, 00000000:03:00.0, NVIDIA GeForce GTX 1050, [Not Supported], [Not Supported], [Not Supported], 200, 2048, 139, 1911, 405, 40, [Not Supported], [Not Supported], [N/A], 3, 16, 3, 16

@@ -85,7 +85,7 @@ ROOT = HERE.parent.parent
 DATE = "October 2026"
 NAME = "ngtop"
 # ngtop's version: the one of Cargo.toml.
-VERSION = re.search(r'^version\s*=\s*"([0-9.]+)"', (ROOT / "Cargo.toml").read_text(), re.M).group(1)
+VERSION = re.search(r'^version\s*=\s*"([0-9.]+(?:-[0-9A-Za-z.]+)?)"', (ROOT / "Cargo.toml").read_text(), re.M).group(1)
 
 MANUALS = {
     "technical": dict(dir="technical", file="Technical Manual.html", title="Technical Manual — ngtop",

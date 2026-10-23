@@ -408,6 +408,96 @@ fn hostile_endless_output_without_newline_is_cut() {
     assert!(victim.alive());
 }
 
+/// `nvidia-smi` finto nella cartella `bin/` dell'host (scenario `proxy`), provato con un'esecuzione
+/// (ritenta su ETXTBSY come `shared_tools`).
+fn fake_nvidia_smi(h: &Host, body: &str) {
+    let p = h.dir.join("bin/nvidia-smi");
+    write_exec(
+        &p,
+        &format!("#!/bin/sh\n[ \"$1\" = --ngtop-probe ] && exit 0\n{body}\n"),
+    );
+    let t0 = Instant::now();
+    loop {
+        match Command::new(&p)
+            .arg("--ngtop-probe")
+            .stdout(Stdio::null())
+            .status()
+        {
+            Ok(_) => break,
+            Err(e) if e.raw_os_error() == Some(26) && t0.elapsed() < Duration::from_secs(20) => {
+                sleep(Duration::from_millis(20));
+            }
+            Err(e) => panic!("cannot run fake nvidia-smi: {e}"),
+        }
+    }
+}
+
+#[test]
+fn hostile_nvidia_smi_output_never_panics_blocks_or_dirties_the_name() {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/gpu/nvidia");
+    // (scenario, corpo dello script): ogni invocazione di nvidia-smi fa questo
+    let esc = "printf '0, 00000000:01:00.0, Evil\\033]0;PWNED\\007\\033[2J\\033[31m GPU, 37, 0, 0, 1523, 24576, 1695, 2100, 9751, 54, 112.45, 350.00, 41, 4, 16, 4, 16\\n'";
+    let cases = [
+        ("ctrl", esc),
+        ("garbage", "head -c 200000 /dev/urandom"),
+        (
+            "junk",
+            "printf '%s\\n' ',,,,' '[N/A], [N/A]' '-1, zz, \\033[31m' '99999999999999999999, 1e999, nan, inf'",
+        ),
+        ("huge", "head -c 40000000 /dev/zero | tr '\\0' a"),
+        ("endless", "yes | tr -d '\\n'"),
+        ("hang", "sleep 600"),
+    ];
+    for (name, body) in cases {
+        let h = host(&format!("nvsmi-{name}"), "proxy", "-");
+        fake_nvidia_smi(&h, body);
+        // Roots remoto completo (sorgente e runner dello stesso host); /sys e /etc puntano alla fixture
+        // (l'host finto è questa stessa macchina, quindi i percorsi esistono anche "dall'altra parte")
+        let mut roots = h.roots();
+        roots.sys = base.join("sys");
+        roots.etc = std::env::temp_dir().join("ngtop-nessun-etc/etc");
+        let what = format!("nvidia-smi {name}");
+        let (slowest, devs, ups) = within(120, &what, move || {
+            let mut s = System::new(roots);
+            let mut slowest = Duration::ZERO;
+            let mut ups: Vec<f64> = Vec::new();
+            let t0 = Instant::now();
+            // ~6 s di giri: l'aggiornamento non deve mai aspettare nvidia-smi
+            while t0.elapsed() < Duration::from_secs(6) {
+                let t = Instant::now();
+                s.refresh();
+                slowest = slowest.max(t.elapsed());
+                ups.push(s.uptime.up_secs);
+                sleep(Duration::from_millis(100));
+            }
+            (slowest, s.gpu.devices.clone(), ups)
+        });
+        // un dato non GPU (uptime della macchina) continua ad aggiornarsi
+        assert!(
+            ups.last() > ups.first() && ups.last().is_some_and(|u| *u > 0.0),
+            "{name}: uptime does not advance: {ups:?}"
+        );
+        assert!(
+            slowest < Duration::from_secs(5),
+            "{name}: refresh took {slowest:?}"
+        );
+        for g in &devs {
+            assert_clean(&format!("{name}: GPU name"), &g.name);
+            assert!(
+                g.usage.is_none_or(|u| (0.0..=100.0).contains(&u)),
+                "{name}: {:?}",
+                g.usage
+            );
+        }
+        if name == "ctrl" {
+            assert!(devs[0].name.contains("Evil"), "{:?}", devs[0].name);
+        }
+        if name == "hang" {
+            assert_eq!(devs[0].state, ngtop::collect::gpu::GpuState::NotResponding);
+        }
+    }
+}
+
 #[test]
 fn hostile_hostname_with_escapes_is_sanitised() {
     let h = host("esc-hostname", "escapes", "-");

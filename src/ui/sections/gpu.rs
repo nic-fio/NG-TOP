@@ -48,7 +48,10 @@ pub(crate) enum Cell {
 /// `meters_first`: ENC/DEC subito dopo uso e memoria (sezione GPU); altrimenti in coda (Panoramica).
 pub(crate) fn cells(g: &Gpu, sys: &System, meters_first: bool) -> Vec<Cell> {
     let mut out = Vec::new();
-    if matches!(g.state, GpuState::Suspended | GpuState::Unsupported) {
+    if matches!(
+        g.state,
+        GpuState::Suspended | GpuState::Unsupported | GpuState::NoTool | GpuState::NotResponding
+    ) {
         return out;
     }
     if let Some(u) = g.usage {
@@ -203,10 +206,9 @@ fn state_line(g: &Gpu) -> Option<String> {
             Some("suspended (D3cold) — not queried, to avoid waking it".into())
         }
         GpuState::Suspended => Some("suspended — not queried, to avoid waking it".into()),
-        GpuState::Unsupported if g.driver == "nvidia" => {
-            Some(format!("support coming soon (driver {})", g.driver))
-        }
         GpuState::Unsupported => Some(format!("not supported (driver {})", g.driver)),
+        GpuState::NoTool => Some("detected — install nvidia-smi for metrics".into()),
+        GpuState::NotResponding => Some("nvidia-smi not responding — retrying".into()),
     }
 }
 
@@ -302,8 +304,10 @@ pub(crate) fn draw_compact_line(buf: &mut Buffer, r: Rect, app: &App, sys: &Syst
     if let Some(t) = state_line(g) {
         let short = if g.state == GpuState::Suspended {
             "suspended"
-        } else if g.driver == "nvidia" {
-            "coming soon"
+        } else if g.state == GpuState::NoTool {
+            "install nvidia-smi"
+        } else if g.state == GpuState::NotResponding {
+            "nvidia-smi not responding"
         } else {
             "not supported"
         };
@@ -496,8 +500,13 @@ pub fn draw(buf: &mut Buffer, area: Rect, app: &mut App, sys: &System) {
     // Processi GPU
     let extra = aggregate(sys);
     let total: u64 = app.view.iter().map(|(i, _)| app.rows[*i].gpu_mem).sum();
+    let cuda_only = if app.selected_gpu(sys).is_some_and(|g| g.procs_compute_only) {
+        " · only CUDA processes are listed on this GPU"
+    } else {
+        ""
+    };
     let right = format!(
-        "sort: ‹ {} ›  {} {} · {}",
+        "sort: ‹ {} ›  {} {} · {}{cuda_only}",
         sort_name(app.sort),
         app.view.len(),
         if app.view.len() == 1 {
@@ -732,5 +741,53 @@ fn draw_power(buf: &mut Buffer, area: Rect, app: &App, g: &Gpu) {
     }
     if y == inner.y {
         put_spans(buf, inner, &mut y, vec![span("not available", dim())]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::collect::Roots;
+    use crate::ui::app::Section;
+    use crate::ui::snapshot::{render_app, to_text};
+
+    #[test]
+    fn nota_cuda_solo_sulla_scheda_selezionata() {
+        let mut sys = System::new(Roots::default());
+        sys.gpu.devices = vec![
+            Gpu {
+                card: "card0".into(),
+                pdev: "0000:00:02.0".into(),
+                driver: "i915".into(),
+                name: "Intel iGPU".into(),
+                integrated: true,
+                procs_compute_only: false,
+                ..Gpu::default()
+            },
+            Gpu {
+                card: "card1".into(),
+                pdev: "0000:01:00.0".into(),
+                driver: "nvidia".into(),
+                name: "NVIDIA GeForce".into(),
+                procs_compute_only: true,
+                ..Gpu::default()
+            },
+        ];
+        let mut app = App::new((140, 40), "host".into());
+        app.set_section(Section::Gpu);
+        app.update(&sys);
+        // Scheda 0 selezionata (i915): la nota non compare.
+        let t0 = to_text(&render_app(&sys, &mut app));
+        assert!(
+            !t0.contains("only CUDA processes are listed on this GPU"),
+            "{t0}"
+        );
+        // Scheda 1 selezionata (nvidia compute-only): la nota compare.
+        app.gpu_sel = Some("0000:01:00.0".into());
+        let t1 = to_text(&render_app(&sys, &mut app));
+        assert!(
+            t1.contains("only CUDA processes are listed on this GPU"),
+            "{t1}"
+        );
     }
 }

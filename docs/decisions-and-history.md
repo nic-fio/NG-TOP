@@ -82,13 +82,13 @@ network, disks and services, in one program. Working rules:
 - **Consequences.** `mockup/app.html` is the visual reference. The other
   mockups were not built as pages of their own.
 
-### D5. GPUs: AMD and Intel first, NVIDIA detected only
+### D5. GPUs: AMD and Intel first, NVIDIA detected only (superseded by D26)
 
 - **Decision.** AMD (`amdgpu`) and Intel (`i915`, `xe`) are read fully. NVIDIA
   cards are detected and listed, nothing more.
 - **Reason.** NVIDIA's data comes from NVML, a dynamic library that a static
   binary cannot load cleanly (D1).
-- **Consequences.** Full NVIDIA support is planned (section 4).
+- **Consequences.** Full NVIDIA support was planned; it arrived in 1.7.0-rc1 (D26).
 
 ### D6. Never wake a sleeping discrete GPU
 
@@ -257,6 +257,24 @@ network, disks and services, in one program. Working rules:
 - **Decision.** 1.6.0: a new function that does not change how the program is
   used.
 
+### D26. NVIDIA through nvidia-smi, version 1.7.0-rc1
+
+- **Context.** NVIDIA's proprietary driver publishes its numbers only through
+  NVML, a C shared library (D5, D1).
+- **Decision.** ngtop reads NVIDIA cards by running `nvidia-smi` (installed with
+  the driver) from a separate thread every ~2 s, and parsing its text output as
+  hostile input. A sleeping card is never queried (D6). If `nvidia-smi` is
+  missing the card is only listed; if it times out (3 s) the state is "not
+  responding" and ngtop retries with a growing pause. The same code works on
+  remote machines, through `ssh`. The release is a candidate (`1.7.0-rc1`)
+  because it has been tested only on sample outputs, not on a real card.
+- **Alternative rejected.** Binding NVML: it is a C library, it would bring a
+  dynamic dependency back and break the single static executable.
+- **Consequences.** A process is started every ~2 s. On GeForce cards some
+  fields are "Not Supported" and graphics processes may not be listed (only CUDA
+  ones). The final 1.7.0 waits for the checklist of tests on real hardware in the
+  technical manual.
+
 ---
 
 ## 3. History
@@ -275,6 +293,7 @@ an independent review before the next began.
 | **7. English and manuals** | Interface moved to English, licence set (D12), user and technical manuals written, with this document. |
 | **8. Remote machines (1.5.0)** | Evening of 2026-10-23. A plan for remote monitoring; the `Source` interface written by the coordinator; five programmers in parallel on collectors, ssh transport, remote services, command line and interface; end-to-end tests on containers (Alpine, Debian, Debian with systemd) and on two real hosts. An independent review found four security issues (forged fd links through file names with newlines, shifted command lines, panics and unbounded memory with a hostile server); all were fixed and verified again (D15–D20). |
 | **9. Actions on remote machines (1.6.0)** | Phase 2 of the remote work. A common interface for process actions written by the coordinator; five programmers in parallel on transport, services, interface and command line, end-to-end tests, and manuals and site; tests in containers with sudo (with and without password) and with systemd (D21–D25). |
+| **10. NVIDIA (1.7.0-rc1)** | Support for NVIDIA cards through `nvidia-smi` (D26). The public types of the collector were written by the coordinator; three programmers in parallel on the output parsers, the link to the collector with its tests, and interface, manuals and site. Tested on sample outputs only; the tests on real hardware are listed in the technical manual. |
 
 ---
 
@@ -282,7 +301,7 @@ an independent review before the next began.
 
 | Topic | Status |
 |---|---|
-| NVIDIA | Detected only (D5). Full support planned. |
+| NVIDIA | Read through `nvidia-smi` (D26); release candidate, not yet tested on a real card. |
 | Architectures | x86_64 only. |
 | Remote machines | Signals, nice and service actions work (D21); user units stay unavailable, and the start-time check has a window of a few milliseconds (D22). |
 | Real hardware | Measured on an Intel N100 machine and tested in containers on eight distributions; other hardware, especially other GPUs, is unverified. |

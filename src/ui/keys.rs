@@ -87,6 +87,7 @@ pub const SECTION_HELP: &[(&str, &[(&str, &str)])] = &[
             ("F6", "sort"),
             ("/", "filter"),
             ("F9", "signal"),
+            ("NVIDIA", "proprietary driver, read through nvidia-smi"),
         ],
     ),
     (
