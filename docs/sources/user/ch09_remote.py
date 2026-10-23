@@ -101,7 +101,7 @@ S_SUDO = p("The option " + c("--sudo") + " makes the program on the server run <
     p("You can write the same choice in the configuration file with " + c("sudo = true") + " (" + rif("Every setting") + "); it applies to " + c("--dump") + " too.") + \
     note("<b>The password stays in the memory of ngtop</b> as long as ngtop is open, so that after a drop of the network it can reconnect by itself, as it does without "
          "sudo (" + rif("Lost connection and reconnection") + "). ngtop never writes it to a file, to the configuration or to a log (the system may still swap memory out to disk), and it is erased from memory "
-         "when ngtop ends or the session is dropped. While ngtop holds it, the process also refuses to produce a memory dump. It is sent only after sudo showed the prompt that ngtop chose: "
+         "when ngtop closes the remote connection, at the latest when ngtop ends (it is kept across a dropped session to reconnect). While ngtop holds it, the process also refuses to produce a memory dump. It is sent only after sudo showed the prompt that ngtop chose: "
          "if sudo does not ask, the password is not sent, and a line that merely looks like “password:” is not enough to get it. This is <b>not</b> a defence against a compromised server: "
          "the prompt can be read in the command line on the server, and whoever controls the server receives what you type. Give the password only to servers you trust.", "Where the password goes.") + \
     p("If it does not work, ngtop tells you why instead of failing in silence: <code>sudo: a terminal is required (requiretty)</code>, "
