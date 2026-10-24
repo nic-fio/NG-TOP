@@ -11,7 +11,8 @@ use ratatui::style::{Modifier, Style};
 use crate::ui::theme;
 
 const BRAND: &str = "ngtop";
-const VERSION: &str = " 1.5 │ ";
+// Presa da Cargo.toml, così non resta indietro.
+const VERSION: &str = concat!(" ", env!("CARGO_PKG_VERSION"), " │ ");
 
 pub struct TabBar<'a> {
     pub tabs: &'a [&'a str],
@@ -129,15 +130,17 @@ mod tests {
             lead: "",
             accent: None,
         };
+        // Le schede partono dopo marchio e versione, qualunque sia la versione.
+        let o = (super::super::width(BRAND) + super::super::width(VERSION)) as u16;
         let r = bar.tab_ranges(0);
-        assert_eq!(r, [(12, 7), (19, 7)]);
+        assert_eq!(r, [(o, 7), (o + 7, 7)]);
         let area = Rect::new(0, 0, 40, 1);
         let mut buf = Buffer::empty(area);
         bar.render(area, &mut buf);
         assert_eq!(buf[(0, 0)].symbol(), "n");
-        assert_eq!(buf[(20, 0)].symbol(), "2");
-        assert_eq!(buf[(20, 0)].bg, theme::BLUE);
-        assert_ne!(buf[(13, 0)].bg, theme::BLUE);
+        assert_eq!(buf[(o + 8, 0)].symbol(), "2");
+        assert_eq!(buf[(o + 8, 0)].bg, theme::BLUE);
+        assert_ne!(buf[(o + 1, 0)].bg, theme::BLUE);
         assert_eq!(buf[(39, 0)].symbol(), "t");
     }
 
